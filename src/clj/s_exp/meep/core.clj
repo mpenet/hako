@@ -13,12 +13,14 @@
   For arena-backed zero-copy output use `encode-to-segment`.
 
   Options:
-    :initial-size — starting buffer size in bytes (default 256)."
+    :initial-size — starting buffer size in bytes (default 256).
+    :meta?        — preserve metadata on collections / IObjs (default false)."
   (^bytes [value] (encode value nil))
   (^bytes [value opts]
    (let [initial (long (or (:initial-size opts) 256))
          wr (Writer. initial)]
      (try
+       (.setWriteMeta wr (boolean (:meta? opts)))
        (.writeEnvelope wr)
        (w/write-value! wr value)
        (let [seg (.finish wr)
@@ -36,6 +38,7 @@
    (let [initial (long (or (:initial-size opts) 256))
          wr (Writer. initial)]
      (try
+       (.setWriteMeta wr (boolean (:meta? opts)))
        (.writeEnvelope wr)
        (w/write-value! wr value)
        (let [src (.finish wr)
@@ -45,15 +48,40 @@
          dst)
        (finally (.close wr))))))
 
+(defn writer
+  "Allocate a reusable Writer with an initial buffer of `initial-size`
+  bytes (default 4096). Close via `.close` when done. Use `encode-into!`
+  for each message; the writer's arena is retained between calls."
+  (^Writer [] (writer 4096))
+  (^Writer [^long initial-size] (Writer. initial-size)))
+
+(defn encode-into!
+  "Encode `value` using the reusable `wr`. Returns a MemorySegment slice
+  covering the encoded bytes. The slice is valid until the next
+  `encode-into!` call on this writer, or `close`."
+  (^MemorySegment [^Writer wr value] (encode-into! wr value nil))
+  (^MemorySegment [^Writer wr value opts]
+   (.reset wr)
+   (.setWriteMeta wr (boolean (:meta? opts)))
+   (.writeEnvelope wr)
+   (w/write-value! wr value)
+   (.finish wr)))
+
 (defn decode
-  "Decode a meep-format value from `src` — a byte[] or a MemorySegment."
+  "Decode a meep-format value from `src` — a byte[] or a MemorySegment.
+
+  Options:
+    :zero-copy? — return MemorySegment slices for byte payloads instead of
+                  copying to byte[] (default false). Slices are valid only
+                  while the source segment / arena remain alive."
   ([src] (decode src nil))
-  ([src _opts]
+  ([src opts]
    (let [seg (cond
                (instance? MemorySegment src) src
                (bytes? src) (MemorySegment/ofArray ^bytes src)
                :else (throw (ex-info "meep: unsupported source"
                                      {:type (class src)})))
          rd (Reader. seg)]
+     (.setZeroCopy rd (boolean (:zero-copy? opts)))
      (.readEnvelope rd)
      (r/read-value! rd))))

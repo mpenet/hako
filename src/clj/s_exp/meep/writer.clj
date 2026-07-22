@@ -1,13 +1,22 @@
 (ns s-exp.meep.writer
   "Value dispatch for meep encode. Hot-path emission lives in
   com.s_exp.meep.Writer (Java)."
-  (:import (clojure.lang IPersistentMap IPersistentSet IPersistentVector
-                         ISeq Keyword Symbol)
+  (:require [s-exp.meep.ext :as ext])
+  (:import (clojure.lang BigInt IPersistentMap IPersistentSet IPersistentVector
+                         IRecord ISeq Keyword PersistentQueue PersistentTreeMap
+                         PersistentTreeSet Ratio Symbol)
            (com.s_exp.meep Format Writer)
+           (java.math BigDecimal BigInteger)
            (java.time Instant)
            (java.util UUID)))
 
 (set! *warn-on-reflection* true)
+
+(def ^:private LONG-ARRAY-CLASS (class (long-array 0)))
+(def ^:private DOUBLE-ARRAY-CLASS (class (double-array 0)))
+
+(defn- long-array? [x] (instance? LONG-ARRAY-CLASS x))
+(defn- double-array? [x] (instance? DOUBLE-ARRAY-CLASS x))
 
 (declare write-value!)
 
@@ -41,8 +50,95 @@
      nil)
    nil m))
 
-(defn write-value!
-  "Dispatch and encode a single Clojure value."
+;; -- Bignumeric --------------------------------------------------------------
+
+(defn- write-bigint!
+  [^Writer w ^BigInteger x]
+  (let [bs (.toByteArray x)]
+    (.putByte w (Format/tag Format/M_BIGNUM Format/BIG_BIGINT))
+    (.putTierValue w (alength bs))
+    (.putBytes w bs)))
+
+(defn- write-clj-bigint!
+  [^Writer w ^BigInt x]
+  (write-bigint! w (.toBigInteger x)))
+
+(defn- write-bigdec!
+  [^Writer w ^BigDecimal x]
+  (let [scale (.scale x)
+        unscaled (.unscaledValue x)
+        bs (.toByteArray unscaled)]
+    (.putByte w (Format/tag Format/M_BIGNUM Format/BIG_BIGDEC))
+    (.putI32 w scale)
+    (.putTierValue w (alength bs))
+    (.putBytes w bs)))
+
+(defn- write-ratio!
+  [^Writer w ^Ratio x]
+  (let [num-bs (.toByteArray (.numerator x))
+        den-bs (.toByteArray (.denominator x))]
+    (.putByte w (Format/tag Format/M_BIGNUM Format/BIG_RATIO))
+    (.putTierValue w (alength num-bs))
+    (.putBytes w num-bs)
+    (.putTierValue w (alength den-bs))
+    (.putBytes w den-bs)))
+
+;; -- Extensions --------------------------------------------------------------
+
+(defn- write-sorted-set!
+  [^Writer w ^PersistentTreeSet s]
+  (when-not (ext/default-comparator? s)
+    (throw (ex-info "meep: cannot encode sorted-set with custom comparator"
+                    {:comparator (.comparator s)})))
+  (.putByte w (Format/tag Format/M_EXT Format/EXT_SORTED_SET))
+  (.putTierValue w (.count s))
+  (reduce (fn [_ x] (write-value! w x) nil) nil s))
+
+(defn- write-sorted-map!
+  [^Writer w ^PersistentTreeMap m]
+  (when-not (ext/default-comparator? m)
+    (throw (ex-info "meep: cannot encode sorted-map with custom comparator"
+                    {:comparator (.comparator m)})))
+  (.putByte w (Format/tag Format/M_EXT Format/EXT_SORTED_MAP))
+  (.putTierValue w (.count m))
+  (reduce-kv
+   (fn [_ k v]
+     (write-value! w k)
+     (write-value! w v)
+     nil)
+   nil m))
+
+(defn- write-queue!
+  [^Writer w ^PersistentQueue q]
+  (let [n (count q)]
+    (.putByte w (Format/tag Format/M_EXT Format/EXT_QUEUE))
+    (.putTierValue w n)
+    (reduce (fn [_ x] (write-value! w x) nil) nil q)))
+
+(defn- write-record!
+  [^Writer w ^IRecord x]
+  (let [klass (class x)
+        info (ext/record-info-by-class klass)]
+    (when-not info
+      (throw (ex-info "meep: record class not registered"
+                      {:class (.getName klass)})))
+    (.putByte w (Format/tag Format/M_EXT Format/EXT_RECORD))
+    (.writeInterned w Format/M_SYM nil (.getName klass))
+    (.putTierValue w (:field-count info))
+    (doseq [k (:field-kws info)]
+      (write-value! w (get x k)))))
+
+(defn- write-with-meta!
+  [^Writer w x meta-map]
+  (.putByte w (Format/tag Format/M_EXT Format/EXT_WITH_META))
+  ;; Inner value first, then metadata map. Recurse into normal dispatch
+  ;; but suppress double-wrapping by temporarily masking the meta.
+  (write-value! w (vary-meta x (constantly nil)))
+  (write-value! w meta-map))
+
+;; -- Top-level dispatch ------------------------------------------------------
+
+(defn- write-scalar-or-composite!
   [^Writer w x]
   (cond
     (nil? x) (.writeNil w)
@@ -52,6 +148,10 @@
                                           (.getNamespace ^Keyword x)
                                           (.getName ^Keyword x))
     (instance? String x) (.writeString w ^String x)
+    (instance? IRecord x) (write-record! w x)
+    (instance? PersistentQueue x) (write-queue! w x)
+    (instance? PersistentTreeSet x) (write-sorted-set! w x)
+    (instance? PersistentTreeMap x) (write-sorted-map! w x)
     (instance? IPersistentVector x) (write-vector! w x)
     (instance? IPersistentMap x) (write-map! w x)
     (instance? IPersistentSet x) (write-set! w x)
@@ -70,8 +170,27 @@
     (instance? Instant x) (.writeInstant w
                                          (.getEpochSecond ^Instant x)
                                          (.getNano ^Instant x))
+    (instance? BigInteger x) (write-bigint! w x)
+    (instance? BigInt x) (write-clj-bigint! w x)
+    (instance? BigDecimal x) (write-bigdec! w x)
+    (instance? Ratio x) (write-ratio! w x)
     (bytes? x) (.writeBytes w ^bytes x)
+    (long-array? x) (.writeLongArray w ^longs x)
+    (double-array? x) (.writeDoubleArray w ^doubles x)
     (instance? ISeq x) (write-seq! w x)
     (instance? Iterable x) (write-seq! w x)
     :else (throw (ex-info "meep: no writer for value"
                           {:type (class x) :value x}))))
+
+(defn write-value!
+  "Dispatch and encode a single Clojure value. Emits an extension
+  `with-meta` wrapper when the writer is in meta-preserving mode and the
+  value carries non-empty metadata."
+  [^Writer w x]
+  (if (and (.writeMeta w)
+           (instance? clojure.lang.IObj x))
+    (let [m (meta x)]
+      (if (and m (seq m))
+        (write-with-meta! w x m)
+        (write-scalar-or-composite! w x)))
+    (write-scalar-or-composite! w x)))

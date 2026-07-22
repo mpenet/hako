@@ -20,6 +20,7 @@ public final class Writer implements AutoCloseable {
     private long cap;
     private final HashMap<String, Long> symTable = new HashMap<>();
     private long nextSymIdx = 0;
+    private boolean writeMeta = false;
 
     public Writer(long initialSize) {
         if (initialSize < 1) initialSize = 64;
@@ -33,8 +34,28 @@ public final class Writer implements AutoCloseable {
 
     public long cap() { return cap; }
 
+    public boolean writeMeta() { return writeMeta; }
+
+    public void setWriteMeta(boolean b) { this.writeMeta = b; }
+
     public MemorySegment finish() {
         return seg.asSlice(0, pos);
+    }
+
+    /**
+     * Reset the writer for reuse. Cursor is set to 0, sym-table is
+     * cleared, and per-message options are restored to defaults. The
+     * underlying buffer and arena are kept.
+     *
+     * The MemorySegment returned by the previous finish() call becomes
+     * a view into memory that is about to be overwritten — callers must
+     * consume it before calling reset().
+     */
+    public void reset() {
+        pos = 0;
+        symTable.clear();
+        nextSymIdx = 0;
+        writeMeta = false;
     }
 
     @Override
@@ -71,6 +92,12 @@ public final class Writer implements AutoCloseable {
         pos += 4;
     }
 
+    public void putI32(int v) {
+        ensure(4);
+        seg.set(Format.LE_INT, pos, v);
+        pos += 4;
+    }
+
     public void putU64(long v) {
         ensure(8);
         seg.set(Format.LE_LONG, pos, v);
@@ -103,6 +130,22 @@ public final class Writer implements AutoCloseable {
     public int putSizedTag(int major, long n) {
         int code = Format.tierCode(n);
         putByte(Format.tag(major, code));
+        putTierPayload(code, n);
+        return code;
+    }
+
+    /**
+     * Emit a raw size-tier value (tier code byte + optional payload),
+     * without any major-type tag prefix. Used inside composite payloads
+     * such as bignumeric byte-counts.
+     */
+    public void putTierValue(long n) {
+        int code = Format.tierCode(n);
+        putByte(code);
+        putTierPayload(code, n);
+    }
+
+    private void putTierPayload(int code, long n) {
         switch (code) {
             case Format.TIER_U8: putByte((int) n); break;
             case Format.TIER_U16: putU16((int) n); break;
@@ -110,7 +153,6 @@ public final class Writer implements AutoCloseable {
             case Format.TIER_U64: putU64(n); break;
             default: break;
         }
-        return code;
     }
 
     public void writeEnvelope() {
@@ -189,6 +231,26 @@ public final class Writer implements AutoCloseable {
     public void writeChar(int codeUnit) {
         putByte(Format.tag(Format.M_SPEC, Format.SPEC_CHAR));
         putU16(codeUnit);
+    }
+
+    public void writeLongArray(long[] arr) {
+        int n = arr.length;
+        putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_LONGS));
+        putTierValue(n);
+        long bytes = (long) n * 8L;
+        ensure(bytes);
+        MemorySegment.copy(arr, 0, seg, Format.LE_LONG, pos, n);
+        pos += bytes;
+    }
+
+    public void writeDoubleArray(double[] arr) {
+        int n = arr.length;
+        putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_DOUBLES));
+        putTierValue(n);
+        long bytes = (long) n * 8L;
+        ensure(bytes);
+        MemorySegment.copy(arr, 0, seg, Format.LE_DOUBLE, pos, n);
+        pos += bytes;
     }
 
     public void writeVectorHeader(long n) {

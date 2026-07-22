@@ -15,12 +15,17 @@ public final class Reader {
     private final long limit;
     private long pos;
     private final ArrayList<Object> symTable = new ArrayList<>();
+    private boolean zeroCopy = false;
 
     public Reader(MemorySegment seg) {
         this.seg = seg;
         this.limit = seg.byteSize();
         this.pos = 0;
     }
+
+    public boolean isZeroCopy() { return zeroCopy; }
+
+    public void setZeroCopy(boolean b) { this.zeroCopy = b; }
 
     public long pos() { return pos; }
 
@@ -53,6 +58,13 @@ public final class Reader {
     public long getU32() {
         need(4);
         long v = seg.get(Format.LE_INT, pos) & 0xFFFFFFFFL;
+        pos += 4;
+        return v;
+    }
+
+    public int getI32() {
+        need(4);
+        int v = seg.get(Format.LE_INT, pos);
         pos += 4;
         return v;
     }
@@ -98,6 +110,24 @@ public final class Reader {
         return new String(getBytes(n), StandardCharsets.UTF_8);
     }
 
+    public long[] readLongArray(int n) {
+        long bytes = (long) n * 8L;
+        need(bytes);
+        long[] arr = new long[n];
+        MemorySegment.copy(seg, Format.LE_LONG, pos, arr, 0, n);
+        pos += bytes;
+        return arr;
+    }
+
+    public double[] readDoubleArray(int n) {
+        long bytes = (long) n * 8L;
+        need(bytes);
+        double[] arr = new double[n];
+        MemorySegment.copy(seg, Format.LE_DOUBLE, pos, arr, 0, n);
+        pos += bytes;
+        return arr;
+    }
+
     public long readTierPayload(int code) {
         if (code <= Format.TIER_INLINE_MAX) return code;
         return switch (code) {
@@ -107,6 +137,12 @@ public final class Reader {
             case Format.TIER_U64 -> getI64();
             default -> throw new IllegalStateException("meep: bad tier code " + code);
         };
+    }
+
+    /** Read a raw size-tier value (tier code byte + optional payload). */
+    public long readTierValue() {
+        int code = getByte();
+        return readTierPayload(code);
     }
 
     public void readEnvelope() {

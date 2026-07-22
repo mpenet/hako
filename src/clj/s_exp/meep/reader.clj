@@ -1,8 +1,11 @@
 (ns s-exp.meep.reader
   "Value dispatch for meep decode. Hot-path parsing lives in
   com.s_exp.meep.Reader (Java)."
-  (:import (clojure.lang PersistentList)
+  (:require [s-exp.meep.ext :as ext])
+  (:import (clojure.lang PersistentList PersistentQueue)
            (com.s_exp.meep Format Reader)
+           (java.lang.invoke MethodHandle)
+           (java.math BigDecimal BigInteger)
            (java.time Instant)
            (java.util Arrays UUID)))
 
@@ -86,6 +89,84 @@
     8 (char (.getU16 r))
     (throw (ex-info "meep: unknown special" {:low low}))))
 
+;; -- Bignumeric --------------------------------------------------------------
+
+(defn- read-bigint-bytes! ^BigInteger [^Reader r]
+  (let [n (.readTierValue r)
+        bs (.getBytes r (int n))]
+    (BigInteger. bs)))
+
+(defn- read-bignumeric!
+  [^Reader r ^long low]
+  (case (int low)
+    0 (bigint (read-bigint-bytes! r))
+    1 (let [scale (.getI32 r)
+            unscaled (read-bigint-bytes! r)]
+        (BigDecimal. unscaled (int scale)))
+    2 (let [num (read-bigint-bytes! r)
+            den (read-bigint-bytes! r)]
+        (/ (bigint num) (bigint den)))
+    (throw (ex-info "meep: unknown bignumeric subtype" {:low low}))))
+
+;; -- Extensions --------------------------------------------------------------
+
+(defn- read-sorted-set! [^Reader r]
+  (let [n (.readTierValue r)]
+    (loop [i 0 acc (sorted-set)]
+      (if (< i n)
+        (recur (unchecked-inc i) (conj acc (read-value! r)))
+        acc))))
+
+(defn- read-sorted-map! [^Reader r]
+  (let [n (.readTierValue r)]
+    (loop [i 0 acc (sorted-map)]
+      (if (< i n)
+        (let [k (read-value! r)
+              v (read-value! r)]
+          (recur (unchecked-inc i) (assoc acc k v)))
+        acc))))
+
+(defn- read-queue! [^Reader r]
+  (let [n (.readTierValue r)]
+    (loop [i 0 acc PersistentQueue/EMPTY]
+      (if (< i n)
+        (recur (unchecked-inc i) (conj acc (read-value! r)))
+        acc))))
+
+(defn- read-record! [^Reader r]
+  (let [classname-sym (read-value! r)
+        classname (str classname-sym)
+        info (ext/record-info-by-name classname)
+        _ (when-not info
+            (throw (ex-info "meep: unknown record class"
+                            {:class classname})))
+        n (.readTierValue r)
+        args (object-array n)]
+    (dotimes [i n]
+      (aset args (int i) (read-value! r)))
+    (.invokeWithArguments ^MethodHandle (:ctor-mh info) args)))
+
+(defn- read-with-meta! [^Reader r]
+  (let [v (read-value! r)
+        m (read-value! r)]
+    (if (instance? clojure.lang.IObj v)
+      (with-meta v m)
+      v)))
+
+(defn- read-extension!
+  [^Reader r ^long low]
+  (case (int low)
+    0 (read-sorted-set! r)
+    1 (read-sorted-map! r)
+    2 (read-queue! r)
+    3 (read-record! r)
+    4 (read-with-meta! r)
+    5 (let [n (.readTierValue r)] (.readLongArray r (int n)))
+    6 (let [n (.readTierValue r)] (.readDoubleArray r (int n)))
+    (throw (ex-info "meep: unknown extension subtype" {:low low}))))
+
+;; -- Dispatch ----------------------------------------------------------------
+
 (defn read-value!
   [^Reader r]
   (let [tag-byte (.getByte r)
@@ -98,7 +179,10 @@
              0 (.getF32 r)
              1 (.getF64 r)
              (throw (ex-info "meep: unknown float subtype" {:low low})))
-      0x30 (let [n (.readTierPayload r (int low))] (.getBytes r (int n)))
+      0x30 (let [n (.readTierPayload r (int low))]
+             (if (.isZeroCopy r)
+               (.sliceBytes r n)
+               (.getBytes r (int n))))
       0x40 (let [n (.readTierPayload r (int low))] (.getString r (int n)))
       0x50 (read-keyword! r low)
       0x60 (read-symbol! r low)
@@ -107,6 +191,8 @@
       0x90 (read-set! r low)
       0xA0 (read-map! r low)
       0xC0 (read-symref! r low)
+      0xD0 (read-bignumeric! r low)
+      0xE0 (read-extension! r low)
       0xF0 (read-special! r low)
       (throw (ex-info "meep: unknown major type"
                       {:tag tag-byte :major major :low low})))))

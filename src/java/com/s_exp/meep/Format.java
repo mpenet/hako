@@ -50,6 +50,10 @@ public final class Format {
     public static final int SPEC_INST = 7;
     public static final int SPEC_CHAR = 8;
 
+    public static final int BIG_BIGINT = 0;
+    public static final int BIG_BIGDEC = 1;
+    public static final int BIG_RATIO = 2;
+
     public static final int EXT_SORTED_SET = 0;
     public static final int EXT_SORTED_MAP = 1;
     public static final int EXT_QUEUE = 2;

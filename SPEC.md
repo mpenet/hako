@@ -116,14 +116,18 @@ Encoder policy: emit the smallest tier that fits.
 
 #### 3.3.4 bignumeric (major 13, 0xD_)
 
-| Low nibble | Meaning              | Payload                          |
-|------------|----------------------|----------------------------------|
-| 0          | BigInteger           | size-tier(u32-max) byte-count, then two's-complement big-endian bytes |
-| 1          | BigDecimal           | i32 scale (LE) + BigInteger unscaled (as above) |
-| 2          | Ratio                | BigInteger numerator + BigInteger denominator |
-| 3..15      | reserved             |                                  |
+All bignumeric payloads use a "raw size-tier value" encoding for byte-count
+prefixes: **1 byte tier code + (0 to 8) byte payload** according to the tier
+table in §3.1. Distinct from an untagged uint value because there is no
+major-type prefix — the byte-count sits directly after the bignumeric tag
+byte.
 
-Note: bignumeric byte-count uses its own size-tier byte before the byte payload, distinct from the tag's low nibble.
+| Low nibble | Meaning     | Payload                                                    |
+|------------|-------------|------------------------------------------------------------|
+| 0          | BigInteger  | raw-tier byte-count, then two's-complement big-endian bytes |
+| 1          | BigDecimal  | i32 scale (LE), then raw-tier byte-count, then unscaled two's-complement big-endian bytes |
+| 2          | Ratio       | numerator (raw-tier byte-count + bytes), then denominator (raw-tier byte-count + bytes) |
+| 3..15      | reserved    |                                                            |
 
 #### 3.3.5 special (major 15, 0xF_)
 
