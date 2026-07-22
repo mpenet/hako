@@ -11,6 +11,34 @@
 
 (set! *warn-on-reflection* true)
 
+(defn- probe-array-map-threshold
+  "Return the largest map size that stays PersistentArrayMap when grown
+  via `assoc`. Uses `key-fn` to generate keys. Adapts to whatever
+  threshold the running Clojure version uses (e.g. 8 pre-1.13, 64 for
+  keyword-only in 1.13+)."
+  [key-fn]
+  (loop [n 1 m (array-map)]
+    (let [m' (assoc m (key-fn n) n)]
+      (cond
+        (not (instance? clojure.lang.PersistentArrayMap m')) (dec n)
+        (>= n 128) n
+        :else (recur (inc n) m')))))
+
+(def ^:private ARRAY-MAP-THRESHOLD
+  (long (probe-array-map-threshold #(str "k" %))))
+
+(def ^:private ARRAY-MAP-KW-THRESHOLD
+  (long (probe-array-map-threshold #(keyword (str "k" %)))))
+
+(defn- all-keyword-keys?
+  [^objects arr ^long n]
+  (loop [i 0]
+    (if (>= i n)
+      true
+      (if (keyword? (aget arr (* 2 i)))
+        (recur (unchecked-inc i))
+        false))))
+
 (declare read-value!)
 
 (defn- read-interned-payload!
@@ -67,13 +95,23 @@
 
 (defn- read-map!
   [^Reader r ^long tier-code]
-  (let [n (.readTierPayload r (int tier-code))
-        t (transient {})]
-    (dotimes [_ n]
-      (let [k (read-value! r)
-            v (read-value! r)]
-        (assoc! t k v)))
-    (persistent! t)))
+  (let [n (.readTierPayload r (int tier-code))]
+    (if (zero? n)
+      {}
+      (let [arr (object-array (* 2 n))]
+        (dotimes [i n]
+          (aset arr (* 2 i) (read-value! r))
+          (aset arr (unchecked-inc (* 2 i)) (read-value! r)))
+        (cond
+          (<= n ARRAY-MAP-THRESHOLD)
+          (clojure.lang.PersistentArrayMap. arr)
+
+          (and (<= n ARRAY-MAP-KW-THRESHOLD)
+               (all-keyword-keys? arr n))
+          (clojure.lang.PersistentArrayMap. arr)
+
+          :else
+          (clojure.lang.PersistentHashMap/create arr))))))
 
 (defn- read-special!
   [^Reader r ^long low]

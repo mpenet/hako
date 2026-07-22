@@ -23,7 +23,8 @@
   :bench
   {:extra-paths ["bench" "test" "target/classes"]
    :extra-deps {criterium/criterium {:mvn/version "0.4.6"}
-                com.taoensso/nippy {:mvn/version "3.4.2"}}
+                com.taoensso/nippy {:mvn/version "3.4.2"}
+                com.github.igrishaev/deed-core {:mvn/version "0.1.0"}}
    :jvm-opts ["--enable-native-access=ALL-UNNAMED"
               "-Dclojure.compiler.direct-linking=true"
               "-server" "-Xmx4g"]}}}

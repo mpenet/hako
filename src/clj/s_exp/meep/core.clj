@@ -67,6 +67,32 @@
    (w/write-value! wr value)
    (.finish wr)))
 
+(defn reader
+  "Allocate a reusable Reader bound to `src` (byte[] or MemorySegment).
+  Rebind via `.reset(newSeg)`. Not thread-safe."
+  ^Reader [src]
+  (let [seg (cond
+              (instance? MemorySegment src) src
+              (bytes? src) (MemorySegment/ofArray ^bytes src)
+              :else (throw (ex-info "meep: unsupported source"
+                                    {:type (class src)})))]
+    (Reader. seg)))
+
+(defn decode-into!
+  "Decode a value using the reusable Reader `rd` rebound to `src`.
+  Rebinds via `.reset` on each call."
+  ([^Reader rd src] (decode-into! rd src nil))
+  ([^Reader rd src opts]
+   (let [seg (cond
+               (instance? MemorySegment src) src
+               (bytes? src) (MemorySegment/ofArray ^bytes src)
+               :else (throw (ex-info "meep: unsupported source"
+                                     {:type (class src)})))]
+     (.reset rd seg)
+     (.setZeroCopy rd (boolean (:zero-copy? opts)))
+     (.readEnvelope rd)
+     (r/read-value! rd))))
+
 (defn decode
   "Decode a meep-format value from `src` — a byte[] or a MemorySegment.
 

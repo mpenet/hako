@@ -11,8 +11,8 @@ import java.util.ArrayList;
  */
 public final class Reader {
 
-    private final MemorySegment seg;
-    private final long limit;
+    private MemorySegment seg;
+    private long limit;
     private long pos;
     private final ArrayList<Object> symTable = new ArrayList<>();
     private boolean zeroCopy = false;
@@ -26,6 +26,19 @@ public final class Reader {
     public boolean isZeroCopy() { return zeroCopy; }
 
     public void setZeroCopy(boolean b) { this.zeroCopy = b; }
+
+    /**
+     * Rebind the reader to a new segment and reset all per-message state.
+     * Cheaper than allocating a new Reader — the sym-table backing list
+     * is reused.
+     */
+    public void reset(MemorySegment newSeg) {
+        this.seg = newSeg;
+        this.limit = newSeg.byteSize();
+        this.pos = 0;
+        this.symTable.clear();
+        this.zeroCopy = false;
+    }
 
     public long pos() { return pos; }
 
