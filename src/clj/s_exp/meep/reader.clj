@@ -191,6 +191,29 @@
       (with-meta v m)
       v)))
 
+(defn- read-user-tag! [^Reader r]
+  (let [id (bit-and (.getU32 r) 0xFFFFFFFF)
+        len (.readTierValue r)
+        reader-info (ext/user-tag-reader id)]
+    (cond
+      reader-info
+      (let [start (.pos r)
+            v ((:read-fn reader-info) r)
+            end (.pos r)
+            consumed (- end start)]
+        (when (not= consumed len)
+          (throw (ex-info "meep: user-tag read-fn consumed wrong byte count"
+                          {:id id :expected len :actual consumed})))
+        v)
+
+      (.isTolerant r)
+      (let [slice (.sliceBytes r len)]
+        (ext/->TaggedValue id slice))
+
+      :else
+      (throw (ex-info "meep: unknown user-tag"
+                      {:type ::unknown-user-tag :id id})))))
+
 (defn- read-extension!
   [^Reader r ^long low]
   (case (int low)
@@ -201,6 +224,7 @@
     4 (read-with-meta! r)
     5 (let [n (.readTierValue r)] (.readLongArray r (int n)))
     6 (let [n (.readTierValue r)] (.readDoubleArray r (int n)))
+    15 (read-user-tag! r)
     (throw (ex-info "meep: unknown extension subtype" {:low low}))))
 
 ;; -- Dispatch ----------------------------------------------------------------

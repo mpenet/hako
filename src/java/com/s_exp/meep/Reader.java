@@ -27,6 +27,18 @@ public final class Reader {
 
     public void setZeroCopy(boolean b) { this.zeroCopy = b; }
 
+    private boolean tolerant = false;
+
+    public boolean isTolerant() { return tolerant; }
+
+    public void setTolerant(boolean b) { this.tolerant = b; }
+
+    /** Advance the cursor by n bytes without materializing them. */
+    public void skip(long n) {
+        need(n);
+        pos += n;
+    }
+
     /**
      * Rebind the reader to a new segment and reset all per-message state.
      * Cheaper than allocating a new Reader — the sym-table backing list
@@ -38,6 +50,7 @@ public final class Reader {
         this.pos = 0;
         this.symTable.clear();
         this.zeroCopy = false;
+        this.tolerant = false;
     }
 
     public long pos() { return pos; }

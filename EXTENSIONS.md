@@ -37,11 +37,21 @@ Notes:
 
 ## E.2 User tag registry
 
-Applications register additional tags under low nibble `15` (`user-tag`):
+Applications register additional tags under low nibble `15` (`user-tag`).
+Frame layout:
 
 ```
-<0xEF><user-tag-id:u32 LE><payload>
+<0xEF>
+<user-tag-id : u32 LE>
+<length-prefix : tier-value>          ; always emitted as TIER_U32 code (0x0E) + u32 LE
+<payload bytes : length>
 ```
+
+The length prefix is fixed as TIER_U32 (5 bytes total). This lets a
+decoder skip an unknown user-tag by advancing `length` bytes past the
+prefix — enabling forward-compatible reads (see §E.3).
+
+Payload maximum: 2^32 − 1 bytes (~4 GB).
 
 Ranges:
 
@@ -55,8 +65,10 @@ Registration for the public range happens by PR against this document.
 
 Reader options:
 
-- `:tolerant? true` — unknown extension tag (or unknown user-tag id) does
-  not throw; returns `s-exp.meep.ext/TaggedValue{:ext id, :bytes payload}`
-  where `payload` is a raw `MemorySegment` slice.
-- `:tolerant? false` (default) — throws `ex-info` with `{:type
-  ::unknown-extension :id id}`.
+- `:tolerant? true` — an unregistered user-tag id is not fatal. The
+  decoder skips over the length-prefixed payload and yields a
+  `s-exp.meep.ext/TaggedValue{:ext id :bytes payload}` where `payload`
+  is a `MemorySegment` slice of the raw bytes. Unknown built-in ext
+  subtypes (0..6) still throw — those are spec bugs, not schema drift.
+- `:tolerant? false` (default) — an unregistered user-tag id throws
+  `ex-info` with `{:type ::unknown-user-tag :id id}`.

@@ -20,12 +20,50 @@
 
 (declare write-value!)
 
+(defn- homogeneous-class
+  "Return `Long`, `Double`, or nil for the shared boxed class of a
+  non-empty vector's elements. Bails out early on the first mismatch."
+  [^IPersistentVector v]
+  (let [n (.count v)
+        first-el (.nth v 0)]
+    (when (or (instance? Long first-el) (instance? Double first-el))
+      (let [target (class first-el)]
+        (loop [i 1]
+          (cond
+            (>= i n) target
+            (identical? target (class (.nth v i))) (recur (unchecked-inc i))
+            :else nil))))))
+
+(defn- pack-longs!
+  [^Writer w ^IPersistentVector v]
+  (let [n (.count v)
+        arr (long-array n)]
+    (dotimes [i n]
+      (aset arr (int i) (long (.nth v i))))
+    (.writeLongArray w arr)))
+
+(defn- pack-doubles!
+  [^Writer w ^IPersistentVector v]
+  (let [n (.count v)
+        arr (double-array n)]
+    (dotimes [i n]
+      (aset arr (int i) (double (.nth v i))))
+    (.writeDoubleArray w arr)))
+
 (defn- write-vector!
   [^Writer w ^IPersistentVector v]
   (let [n (.count v)]
-    (.writeVectorHeader w n)
-    (dotimes [i n]
-      (write-value! w (.nth v i)))))
+    (if (and (pos? n) (.packHomogeneous w))
+      (let [homo (homogeneous-class v)]
+        (cond
+          (identical? homo Long) (pack-longs! w v)
+          (identical? homo Double) (pack-doubles! w v)
+          :else (do (.writeVectorHeader w n)
+                    (dotimes [i n]
+                      (write-value! w (.nth v i))))))
+      (do (.writeVectorHeader w n)
+          (dotimes [i n]
+            (write-value! w (.nth v i)))))))
 
 (defn- write-seq!
   [^Writer w s]
@@ -179,8 +217,13 @@
     (double-array? x) (.writeDoubleArray w ^doubles x)
     (instance? ISeq x) (write-seq! w x)
     (instance? Iterable x) (write-seq! w x)
-    :else (throw (ex-info "meep: no writer for value"
-                          {:type (class x) :value x}))))
+    :else
+    (if-let [info (ext/user-tag-for-class (class x))]
+      (let [mark (.beginUserTag w (int (:id info)))]
+        ((:write-fn info) w x)
+        (.endUserTag w mark))
+      (throw (ex-info "meep: no writer for value"
+                      {:type (class x) :value x})))))
 
 (defn write-value!
   "Dispatch and encode a single Clojure value. Emits an extension

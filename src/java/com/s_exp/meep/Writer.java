@@ -21,6 +21,7 @@ public final class Writer implements AutoCloseable {
     private final HashMap<String, Long> symTable = new HashMap<>();
     private long nextSymIdx = 0;
     private boolean writeMeta = false;
+    private boolean packHomogeneous = false;
 
     public Writer(long initialSize) {
         if (initialSize < 1) initialSize = 64;
@@ -37,6 +38,10 @@ public final class Writer implements AutoCloseable {
     public boolean writeMeta() { return writeMeta; }
 
     public void setWriteMeta(boolean b) { this.writeMeta = b; }
+
+    public boolean packHomogeneous() { return packHomogeneous; }
+
+    public void setPackHomogeneous(boolean b) { this.packHomogeneous = b; }
 
     public MemorySegment finish() {
         return seg.asSlice(0, pos);
@@ -56,6 +61,7 @@ public final class Writer implements AutoCloseable {
         symTable.clear();
         nextSymIdx = 0;
         writeMeta = false;
+        packHomogeneous = false;
     }
 
     @Override
@@ -241,6 +247,31 @@ public final class Writer implements AutoCloseable {
         ensure(bytes);
         MemorySegment.copy(arr, 0, seg, Format.LE_LONG, pos, n);
         pos += bytes;
+    }
+
+    /**
+     * Emit the user-tag header for tag id `tagId` and return an offset
+     * that must be passed to `endUserTag` after payload bytes have been
+     * written. Between the two calls, callers write the payload via any
+     * Writer method — the framework fills in a u32 length prefix on end.
+     */
+    public long beginUserTag(int tagId) {
+        putByte(Format.tag(Format.M_EXT, Format.EXT_USER_TAG));
+        putI32(tagId);
+        long lenMark = pos;
+        ensure(5);
+        pos += 5;
+        return lenMark;
+    }
+
+    public void endUserTag(long lenMark) {
+        long payloadStart = lenMark + 5;
+        long payloadLen = pos - payloadStart;
+        if (payloadLen > 0xFFFFFFFFL) {
+            throw new IllegalStateException("meep: user-tag payload exceeds 4 GiB");
+        }
+        seg.set(ValueLayout.JAVA_BYTE, lenMark, (byte) Format.TIER_U32);
+        seg.set(Format.LE_INT, lenMark + 1, (int) payloadLen);
     }
 
     public void writeDoubleArray(double[] arr) {

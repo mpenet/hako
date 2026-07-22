@@ -13,14 +13,17 @@
   For arena-backed zero-copy output use `encode-to-segment`.
 
   Options:
-    :initial-size — starting buffer size in bytes (default 256).
-    :meta?        — preserve metadata on collections / IObjs (default false)."
+    :initial-size       — starting buffer size in bytes (default 256).
+    :meta?              — preserve metadata on collections / IObjs (default false).
+    :pack-homogeneous?  — detect all-Long / all-Double vectors and emit
+                          them as packed prim arrays (default false)."
   (^bytes [value] (encode value nil))
   (^bytes [value opts]
    (let [initial (long (or (:initial-size opts) 256))
          wr (Writer. initial)]
      (try
        (.setWriteMeta wr (boolean (:meta? opts)))
+       (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
        (.writeEnvelope wr)
        (w/write-value! wr value)
        (let [seg (.finish wr)
@@ -39,6 +42,7 @@
          wr (Writer. initial)]
      (try
        (.setWriteMeta wr (boolean (:meta? opts)))
+       (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
        (.writeEnvelope wr)
        (w/write-value! wr value)
        (let [src (.finish wr)
@@ -63,6 +67,7 @@
   (^MemorySegment [^Writer wr value opts]
    (.reset wr)
    (.setWriteMeta wr (boolean (:meta? opts)))
+   (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
    (.writeEnvelope wr)
    (w/write-value! wr value)
    (.finish wr)))
@@ -90,6 +95,7 @@
                                      {:type (class src)})))]
      (.reset rd seg)
      (.setZeroCopy rd (boolean (:zero-copy? opts)))
+     (.setTolerant rd (boolean (:tolerant? opts)))
      (.readEnvelope rd)
      (r/read-value! rd))))
 
@@ -99,7 +105,9 @@
   Options:
     :zero-copy? — return MemorySegment slices for byte payloads instead of
                   copying to byte[] (default false). Slices are valid only
-                  while the source segment / arena remain alive."
+                  while the source segment / arena remain alive.
+    :tolerant?  — unknown user-tag ids resolve to TaggedValue rather than
+                  throwing (default false)."
   ([src] (decode src nil))
   ([src opts]
    (let [seg (cond
@@ -109,5 +117,6 @@
                                      {:type (class src)})))
          rd (Reader. seg)]
      (.setZeroCopy rd (boolean (:zero-copy? opts)))
+     (.setTolerant rd (boolean (:tolerant? opts)))
      (.readEnvelope rd)
      (r/read-value! rd))))

@@ -73,24 +73,35 @@
   (get @record-registry classname))
 
 ;; -- User-tag registry ------------------------------------------------------
+;;
+;; Keyed two ways:
+;;   :by-class {Class -> {:id long :write-fn fn}}    — for encode dispatch
+;;   :by-id    {long  -> {:read-fn fn}}              — for decode dispatch
+;;
+;; write-fn signature: (fn [Writer value])  — write payload bytes only.
+;;                                            Framework wraps with the
+;;                                            0xEF header + u32 id + u32 length.
+;; read-fn signature:  (fn [Reader])        — parse one value from the
+;;                                            length-bounded payload.
 
-(def ^:private user-write-fns (atom {}))
-(def ^:private user-read-fns (atom {}))
+(def ^:private user-tag-registry
+  (atom {:by-class {} :by-id {}}))
 
 (defn register-user-tag!
-  "Register a user extension tag id (in the range 0x00010000..0xFFFFFFFF).
-
-  `write-fn` : (fn [Writer value]) — writes payload after tag/id bytes.
-  `read-fn`  : (fn [Reader])       — parses value."
-  [^long id write-fn read-fn]
+  "Register a user extension tag `id` for `klass`. See ns docstring for
+  callback signatures."
+  [^long id ^Class klass write-fn read-fn]
   (when (or (< id 0) (> id 0xFFFFFFFF))
     (throw (ex-info "user-tag id out of range" {:id id})))
-  (swap! user-write-fns assoc id write-fn)
-  (swap! user-read-fns assoc id read-fn)
+  (swap! user-tag-registry
+         (fn [reg]
+           (-> reg
+               (assoc-in [:by-class klass] {:id id :write-fn write-fn})
+               (assoc-in [:by-id id] {:read-fn read-fn}))))
   id)
 
-(defn user-write-fn [^long id]
-  (get @user-write-fns id))
+(defn user-tag-for-class [^Class klass]
+  (get-in @user-tag-registry [:by-class klass]))
 
-(defn user-read-fn [^long id]
-  (get @user-read-fns id))
+(defn user-tag-reader [id]
+  (get-in @user-tag-registry [:by-id id]))
