@@ -1,0 +1,59 @@
+(ns s-exp.meep.core
+  "Public API for meep — schemaless, low-alloc Clojure serialization."
+  (:require [s-exp.meep.reader :as r]
+            [s-exp.meep.writer :as w])
+  (:import (com.s_exp.meep Reader Writer)
+           (java.lang.foreign Arena MemorySegment ValueLayout)))
+
+(set! *warn-on-reflection* true)
+
+(defn encode
+  "Encode `value` and return a fresh byte[].
+
+  For arena-backed zero-copy output use `encode-to-segment`.
+
+  Options:
+    :initial-size — starting buffer size in bytes (default 256)."
+  (^bytes [value] (encode value nil))
+  (^bytes [value opts]
+   (let [initial (long (or (:initial-size opts) 256))
+         wr (Writer. initial)]
+     (try
+       (.writeEnvelope wr)
+       (w/write-value! wr value)
+       (let [seg (.finish wr)
+             n (.byteSize seg)
+             arr (byte-array n)]
+         (MemorySegment/copy seg ValueLayout/JAVA_BYTE 0 arr 0 n)
+         arr)
+       (finally (.close wr))))))
+
+(defn encode-to-segment
+  "Encode `value` into a MemorySegment owned by `arena`. Returns the segment."
+  (^MemorySegment [^Arena arena value]
+   (encode-to-segment arena value nil))
+  (^MemorySegment [^Arena arena value opts]
+   (let [initial (long (or (:initial-size opts) 256))
+         wr (Writer. initial)]
+     (try
+       (.writeEnvelope wr)
+       (w/write-value! wr value)
+       (let [src (.finish wr)
+             n (.byteSize src)
+             dst (.allocate arena n 1)]
+         (MemorySegment/copy src 0 dst 0 n)
+         dst)
+       (finally (.close wr))))))
+
+(defn decode
+  "Decode a meep-format value from `src` — a byte[] or a MemorySegment."
+  ([src] (decode src nil))
+  ([src _opts]
+   (let [seg (cond
+               (instance? MemorySegment src) src
+               (bytes? src) (MemorySegment/ofArray ^bytes src)
+               :else (throw (ex-info "meep: unsupported source"
+                                     {:type (class src)})))
+         rd (Reader. seg)]
+     (.readEnvelope rd)
+     (r/read-value! rd))))
