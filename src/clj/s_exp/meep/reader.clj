@@ -39,6 +39,28 @@
         (recur (unchecked-inc i))
         false))))
 
+;; -- Optional global keyword cache ------------------------------------------
+
+(def ^:private ^java.util.concurrent.ConcurrentHashMap KW-CACHE
+  (java.util.concurrent.ConcurrentHashMap.))
+
+(def ^:private ^java.util.concurrent.ConcurrentHashMap SYM-CACHE
+  (java.util.concurrent.ConcurrentHashMap.))
+
+(defn- cached-keyword ^clojure.lang.Keyword [^String ns-str ^String name-str]
+  (let [k (if ns-str (str ns-str "/" name-str) name-str)]
+    (or (.get KW-CACHE k)
+        (let [kw (keyword ns-str name-str)
+              prev (.putIfAbsent KW-CACHE k kw)]
+          (or prev kw)))))
+
+(defn- cached-symbol ^clojure.lang.Symbol [^String ns-str ^String name-str]
+  (let [k (if ns-str (str ns-str "/" name-str) name-str)]
+    (or (.get SYM-CACHE k)
+        (let [sym (symbol ns-str name-str)
+              prev (.putIfAbsent SYM-CACHE k sym)]
+          (or prev sym)))))
+
 (declare read-value!)
 
 (defn- read-interned-payload!
@@ -53,14 +75,18 @@
 (defn- read-keyword!
   [^Reader r ^long tier-code]
   (let [[ns-str name-str] (read-interned-payload! r tier-code)
-        kw (keyword ns-str name-str)]
+        kw (if (.isCacheIdents r)
+             (cached-keyword ns-str name-str)
+             (keyword ns-str name-str))]
     (.internAdd r kw)
     kw))
 
 (defn- read-symbol!
   [^Reader r ^long tier-code]
   (let [[ns-str name-str] (read-interned-payload! r tier-code)
-        sym (symbol ns-str name-str)]
+        sym (if (.isCacheIdents r)
+              (cached-symbol ns-str name-str)
+              (symbol ns-str name-str))]
     (.internAdd r sym)
     sym))
 

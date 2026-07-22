@@ -28,10 +28,15 @@ public final class Reader {
     public void setZeroCopy(boolean b) { this.zeroCopy = b; }
 
     private boolean tolerant = false;
+    private boolean cacheIdents = false;
 
     public boolean isTolerant() { return tolerant; }
 
     public void setTolerant(boolean b) { this.tolerant = b; }
+
+    public boolean isCacheIdents() { return cacheIdents; }
+
+    public void setCacheIdents(boolean b) { this.cacheIdents = b; }
 
     /** Advance the cursor by n bytes without materializing them. */
     public void skip(long n) {
@@ -51,6 +56,7 @@ public final class Reader {
         this.symTable.clear();
         this.zeroCopy = false;
         this.tolerant = false;
+        this.cacheIdents = false;
     }
 
     public long pos() { return pos; }

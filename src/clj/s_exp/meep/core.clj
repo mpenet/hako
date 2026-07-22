@@ -96,6 +96,7 @@
      (.reset rd seg)
      (.setZeroCopy rd (boolean (:zero-copy? opts)))
      (.setTolerant rd (boolean (:tolerant? opts)))
+     (.setCacheIdents rd (boolean (:cache-idents? opts)))
      (.readEnvelope rd)
      (r/read-value! rd))))
 
@@ -107,7 +108,11 @@
                   copying to byte[] (default false). Slices are valid only
                   while the source segment / arena remain alive.
     :tolerant?  — unknown user-tag ids resolve to TaggedValue rather than
-                  throwing (default false)."
+                  throwing (default false).
+    :cache-idents? — consult a JVM-global cache when interning decoded
+                  keywords / symbols. Wins on keyword-heavy payloads
+                  (~2x on 50+ unique kw), slight overhead on tiny maps
+                  (default false)."
   ([src] (decode src nil))
   ([src opts]
    (let [seg (cond
@@ -118,5 +123,6 @@
          rd (Reader. seg)]
      (.setZeroCopy rd (boolean (:zero-copy? opts)))
      (.setTolerant rd (boolean (:tolerant? opts)))
+     (.setCacheIdents rd (boolean (:cache-idents? opts)))
      (.readEnvelope rd)
      (r/read-value! rd))))
