@@ -4,7 +4,7 @@
   Run: clj -M:bench -m bench [payload-label ...]"
   (:require [criterium.core :as c]
             [deed.core :as deed]
-            [s-exp.meep.core :as meep]
+            [s-exp.meep :as meep]
             [taoensso.nippy :as nippy]))
 
 (def payloads

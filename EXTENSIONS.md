@@ -16,8 +16,7 @@ extension sub-registry. Extension payload follows.
 | 4          | with-meta     | inner value, then map value (metadata)                      |
 | 5          | prim-longs    | size-tier count, then N × i64 LE (packed `long[]`)          |
 | 6          | prim-doubles  | size-tier count, then N × f64 LE (packed `double[]`)        |
-| 7          | prim-bytes    | equivalent to major 3 (bytes) but reader returns `byte[]` copy rather than segment view |
-| 8..14      | reserved      |                                                              |
+| 7..14      | reserved      |                                                              |
 | 15         | user-tag      | u32 LE user tag id, then payload (see §E.2)                 |
 
 Notes:

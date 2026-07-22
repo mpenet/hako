@@ -1,6 +1,6 @@
 (ns s-exp.meep.roundtrip-test
   (:require [clojure.test :refer [deftest is testing]]
-            [s-exp.meep.core :as meep])
+            [s-exp.meep :as meep])
   (:import (java.time Instant)
            (java.util UUID)))
 

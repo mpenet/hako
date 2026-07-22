@@ -1,6 +1,6 @@
 (ns s-exp.meep.m5-test
   (:require [clojure.test :refer [deftest is testing]]
-            [s-exp.meep.core :as meep]
+            [s-exp.meep :as meep]
             [s-exp.meep.ext :as ext])
   (:import (com.s_exp.meep Reader Writer)
            (java.lang.foreign MemorySegment)

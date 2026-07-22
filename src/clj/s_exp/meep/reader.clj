@@ -61,11 +61,20 @@
               prev (.putIfAbsent SYM-CACHE k sym)]
           (or prev sym)))))
 
+(defn- check-count!
+  "Guard against silent truncation when a u64-tier count / length exceeds
+  what an int-indexed Clojure API can hold. Throws when out of range."
+  ^long [^long n what]
+  (when (or (neg? n) (> n Integer/MAX_VALUE))
+    (throw (ex-info (str "meep: " what " exceeds Integer/MAX_VALUE")
+                    {:type ::count-overflow :count n})))
+  n)
+
 (declare read-value!)
 
 (defn- read-interned-payload!
   [^Reader r ^long tier-code]
-  (let [total-len (.readTierPayload r (int tier-code))
+  (let [total-len (check-count! (.readTierPayload r (int tier-code)) "identifier length")
         ns-len (.getByte r)
         name-len (- total-len 1 ns-len)
         ns-str (when (pos? ns-len) (.getString r (int ns-len)))
@@ -92,12 +101,12 @@
 
 (defn- read-symref!
   [^Reader r ^long tier-code]
-  (let [idx (.readTierPayload r (int tier-code))]
+  (let [idx (check-count! (.readTierPayload r (int tier-code)) "symref index")]
     (.internGet r (int idx))))
 
 (defn- read-vector!
   [^Reader r ^long tier-code]
-  (let [n (.readTierPayload r (int tier-code))
+  (let [n (check-count! (.readTierPayload r (int tier-code)) "vector count")
         t (transient [])]
     (dotimes [_ n]
       (conj! t (read-value! r)))
@@ -105,7 +114,7 @@
 
 (defn- read-list!
   [^Reader r ^long tier-code]
-  (let [n (.readTierPayload r (int tier-code))
+  (let [n (check-count! (.readTierPayload r (int tier-code)) "list count")
         arr (object-array n)]
     (dotimes [i n]
       (aset arr (int i) (read-value! r)))
@@ -113,7 +122,7 @@
 
 (defn- read-set!
   [^Reader r ^long tier-code]
-  (let [n (.readTierPayload r (int tier-code))
+  (let [n (check-count! (.readTierPayload r (int tier-code)) "set count")
         t (transient #{})]
     (dotimes [_ n]
       (conj! t (read-value! r)))
@@ -121,7 +130,7 @@
 
 (defn- read-map!
   [^Reader r ^long tier-code]
-  (let [n (.readTierPayload r (int tier-code))]
+  (let [n (check-count! (.readTierPayload r (int tier-code)) "map count")]
     (if (zero? n)
       {}
       (let [arr (object-array (* 2 n))]
@@ -156,7 +165,7 @@
 ;; -- Bignumeric --------------------------------------------------------------
 
 (defn- read-bigint-bytes! ^BigInteger [^Reader r]
-  (let [n (.readTierValue r)
+  (let [n (check-count! (.readTierValue r) "bigint byte-count")
         bs (.getBytes r (int n))]
     (BigInteger. bs)))
 
@@ -175,14 +184,14 @@
 ;; -- Extensions --------------------------------------------------------------
 
 (defn- read-sorted-set! [^Reader r]
-  (let [n (.readTierValue r)]
+  (let [n (check-count! (.readTierValue r) "sorted-set count")]
     (loop [i 0 acc (sorted-set)]
       (if (< i n)
         (recur (unchecked-inc i) (conj acc (read-value! r)))
         acc))))
 
 (defn- read-sorted-map! [^Reader r]
-  (let [n (.readTierValue r)]
+  (let [n (check-count! (.readTierValue r) "sorted-map count")]
     (loop [i 0 acc (sorted-map)]
       (if (< i n)
         (let [k (read-value! r)
@@ -191,7 +200,7 @@
         acc))))
 
 (defn- read-queue! [^Reader r]
-  (let [n (.readTierValue r)]
+  (let [n (check-count! (.readTierValue r) "queue count")]
     (loop [i 0 acc PersistentQueue/EMPTY]
       (if (< i n)
         (recur (unchecked-inc i) (conj acc (read-value! r)))
@@ -204,7 +213,7 @@
         _ (when-not info
             (throw (ex-info "meep: unknown record class"
                             {:class classname})))
-        n (.readTierValue r)
+        n (check-count! (.readTierValue r) "record field count")
         args (object-array n)]
     (dotimes [i n]
       (aset args (int i) (read-value! r)))
@@ -248,8 +257,10 @@
     2 (read-queue! r)
     3 (read-record! r)
     4 (read-with-meta! r)
-    5 (let [n (.readTierValue r)] (.readLongArray r (int n)))
-    6 (let [n (.readTierValue r)] (.readDoubleArray r (int n)))
+    5 (let [n (check-count! (.readTierValue r) "prim-longs count")]
+        (.readLongArray r (int n)))
+    6 (let [n (check-count! (.readTierValue r) "prim-doubles count")]
+        (.readDoubleArray r (int n)))
     15 (read-user-tag! r)
     (throw (ex-info "meep: unknown extension subtype" {:low low}))))
 
@@ -270,8 +281,9 @@
       0x30 (let [n (.readTierPayload r (int low))]
              (if (.isZeroCopy r)
                (.sliceBytes r n)
-               (.getBytes r (int n))))
-      0x40 (let [n (.readTierPayload r (int low))] (.getString r (int n)))
+               (.getBytes r (int (check-count! n "byte string length")))))
+      0x40 (let [n (check-count! (.readTierPayload r (int low)) "string length")]
+             (.getString r (int n)))
       0x50 (read-keyword! r low)
       0x60 (read-symbol! r low)
       0x70 (read-vector! r low)

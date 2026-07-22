@@ -1,10 +1,24 @@
 package com.s_exp.meep;
 
+import clojure.lang.BigInt;
+import clojure.lang.IObj;
+import clojure.lang.IPersistentMap;
+import clojure.lang.IPersistentSet;
+import clojure.lang.IPersistentVector;
+import clojure.lang.ISeq;
+import clojure.lang.Keyword;
+import clojure.lang.Ratio;
+import clojure.lang.Symbol;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Mutable meep-format encoder. Owns an internal Arena and grows the
@@ -43,6 +57,19 @@ public final class Writer implements AutoCloseable {
 
     public void setPackHomogeneous(boolean b) { this.packHomogeneous = b; }
 
+    /**
+     * Handler invoked for values that don't match any built-in
+     * dispatch — records, custom user-tag types, or unknown classes.
+     * Set by the Clojure layer.
+     */
+    public interface UnknownHandler {
+        void write(Writer w, Object v);
+    }
+
+    private UnknownHandler unknownHandler;
+
+    public void setUnknownHandler(UnknownHandler h) { this.unknownHandler = h; }
+
     public MemorySegment finish() {
         return seg.asSlice(0, pos);
     }
@@ -62,6 +89,7 @@ public final class Writer implements AutoCloseable {
         nextSymIdx = 0;
         writeMeta = false;
         packHomogeneous = false;
+        unknownHandler = null;
     }
 
     @Override
@@ -69,7 +97,13 @@ public final class Writer implements AutoCloseable {
         arena.close();
     }
 
+    private static final long MAX_CAP = 1L << 62;
+
     private void ensure(long n) {
+        if (n < 0 || n > MAX_CAP - pos) {
+            throw new IllegalStateException(
+                "meep: write exceeds max buffer capacity (" + MAX_CAP + " bytes)");
+        }
         long need = pos + n;
         if (need <= cap) return;
         long newCap = cap;
@@ -327,5 +361,195 @@ public final class Writer implements AutoCloseable {
         if (nsLen > 0) putBytes(nsBs);
         putBytes(nameBs);
         symTable.put(key, nextSymIdx++);
+    }
+
+    // -- Bignumeric --------------------------------------------------------
+
+    public void writeBigInteger(BigInteger x) {
+        byte[] bs = x.toByteArray();
+        putByte(Format.tag(Format.M_BIGNUM, Format.BIG_BIGINT));
+        putTierValue(bs.length);
+        putBytes(bs);
+    }
+
+    public void writeBigDecimal(BigDecimal x) {
+        byte[] bs = x.unscaledValue().toByteArray();
+        putByte(Format.tag(Format.M_BIGNUM, Format.BIG_BIGDEC));
+        putI32(x.scale());
+        putTierValue(bs.length);
+        putBytes(bs);
+    }
+
+    public void writeRatio(Ratio r) {
+        byte[] num = r.numerator.toByteArray();
+        byte[] den = r.denominator.toByteArray();
+        putByte(Format.tag(Format.M_BIGNUM, Format.BIG_RATIO));
+        putTierValue(num.length);
+        putBytes(num);
+        putTierValue(den.length);
+        putBytes(den);
+    }
+
+    // -- Container helpers -------------------------------------------------
+
+    private void writeVectorAny(IPersistentVector v) {
+        int n = v.count();
+        if (packHomogeneous && n > 0) {
+            Class<?> homo = homogeneousClass(v, n);
+            if (homo == Long.class) {
+                long[] arr = new long[n];
+                for (int i = 0; i < n; i++) arr[i] = (Long) v.nth(i);
+                writeLongArray(arr);
+                return;
+            }
+            if (homo == Double.class) {
+                double[] arr = new double[n];
+                for (int i = 0; i < n; i++) arr[i] = (Double) v.nth(i);
+                writeDoubleArray(arr);
+                return;
+            }
+        }
+        writeVectorHeader(n);
+        for (int i = 0; i < n; i++) writeAny(v.nth(i));
+    }
+
+    private static Class<?> homogeneousClass(IPersistentVector v, int n) {
+        Object first = v.nth(0);
+        if (!(first instanceof Long) && !(first instanceof Double)) return null;
+        Class<?> target = first.getClass();
+        for (int i = 1; i < n; i++) {
+            if (v.nth(i).getClass() != target) return null;
+        }
+        return target;
+    }
+
+    private void writeMapAny(IPersistentMap m) {
+        writeMapHeader(m.count());
+        java.util.Iterator<?> it = clojure.lang.RT.iter(m);
+        while (it.hasNext()) {
+            Map.Entry<?, ?> e = (Map.Entry<?, ?>) it.next();
+            writeAny(e.getKey());
+            writeAny(e.getValue());
+        }
+    }
+
+    private void writeSetAny(IPersistentSet s) {
+        writeSetHeader(s.count());
+        java.util.Iterator<?> it = clojure.lang.RT.iter(s);
+        while (it.hasNext()) writeAny(it.next());
+    }
+
+    private void writeSeqAny(ISeq s) {
+        // Materialize once to know count.
+        java.util.ArrayList<Object> tmp = new java.util.ArrayList<>();
+        for (ISeq cur = s; cur != null; cur = cur.next()) tmp.add(cur.first());
+        int n = tmp.size();
+        writeListHeader(n);
+        for (int i = 0; i < n; i++) writeAny(tmp.get(i));
+    }
+
+    private void writeIterableAny(Iterable<?> it) {
+        java.util.ArrayList<Object> tmp = new java.util.ArrayList<>();
+        for (Object x : it) tmp.add(x);
+        int n = tmp.size();
+        writeListHeader(n);
+        for (int i = 0; i < n; i++) writeAny(tmp.get(i));
+    }
+
+    // -- Top-level dispatch (hot path) -------------------------------------
+
+    /**
+     * Encode any supported value. Falls back to the registered
+     * `UnknownHandler` for records, sorted collections, queues,
+     * user-tagged types, or anything else outside the built-in set.
+     */
+    public void writeAny(Object v) {
+        writeAnyInner(v, false);
+    }
+
+    private void writeAnyInner(Object v, boolean skipMeta) {
+        // Meta wrapping is the outermost concern: emit tag + inner (with
+        // meta skipped for the current value only) + meta map.
+        if (!skipMeta && writeMeta && v instanceof IObj) {
+            IObj obj = (IObj) v;
+            IPersistentMap m = obj.meta();
+            if (m != null && m.count() > 0) {
+                putByte(Format.tag(Format.M_EXT, Format.EXT_WITH_META));
+                writeAnyInner(v, true);
+                writeAnyInner(m, false);
+                return;
+            }
+        }
+
+        if (v == null) { writeNil(); return; }
+
+        // Ordered by expected frequency in typical Clojure data.
+        if (v instanceof Long) { writeLong((Long) v); return; }
+        if (v instanceof Keyword) {
+            Keyword k = (Keyword) v;
+            writeInterned(Format.M_KW, k.getNamespace(), k.getName());
+            return;
+        }
+        if (v instanceof String) { writeString((String) v); return; }
+
+        // Delegate types that overlap generic interfaces below.
+        if (v instanceof clojure.lang.IRecord
+            || v instanceof clojure.lang.PersistentTreeSet
+            || v instanceof clojure.lang.PersistentTreeMap
+            || v instanceof clojure.lang.PersistentQueue) {
+            fallback(v);
+            return;
+        }
+
+        if (v instanceof IPersistentVector) { writeVectorAny((IPersistentVector) v); return; }
+        if (v instanceof IPersistentMap)    { writeMapAny((IPersistentMap) v); return; }
+        if (v instanceof IPersistentSet)    { writeSetAny((IPersistentSet) v); return; }
+        if (v instanceof Symbol) {
+            Symbol s = (Symbol) v;
+            writeInterned(Format.M_SYM, s.getNamespace(), s.getName());
+            return;
+        }
+
+        if (v instanceof Boolean) { if ((Boolean) v) writeTrue(); else writeFalse(); return; }
+        if (v instanceof Double)  { writeDouble((Double) v); return; }
+        if (v instanceof Float)   { writeFloat((Float) v); return; }
+        if (v instanceof Integer) { writeLong((Integer) v); return; }
+        if (v instanceof Short)   { writeLong((Short) v); return; }
+        if (v instanceof Byte)    { writeLong((Byte) v); return; }
+        if (v instanceof Character) { writeChar(((Character) v).charValue()); return; }
+
+        if (v instanceof UUID) {
+            UUID u = (UUID) v;
+            writeUuid(u.getMostSignificantBits(), u.getLeastSignificantBits());
+            return;
+        }
+        if (v instanceof Instant) {
+            Instant t = (Instant) v;
+            writeInstant(t.getEpochSecond(), t.getNano());
+            return;
+        }
+
+        if (v instanceof BigInteger) { writeBigInteger((BigInteger) v); return; }
+        if (v instanceof BigInt)     { writeBigInteger(((BigInt) v).toBigInteger()); return; }
+        if (v instanceof BigDecimal) { writeBigDecimal((BigDecimal) v); return; }
+        if (v instanceof Ratio)      { writeRatio((Ratio) v); return; }
+
+        if (v instanceof byte[])   { writeBytes((byte[]) v); return; }
+        if (v instanceof long[])   { writeLongArray((long[]) v); return; }
+        if (v instanceof double[]) { writeDoubleArray((double[]) v); return; }
+
+        if (v instanceof ISeq)     { writeSeqAny((ISeq) v); return; }
+        if (v instanceof Iterable) { writeIterableAny((Iterable<?>) v); return; }
+
+        fallback(v);
+    }
+
+    private void fallback(Object v) {
+        if (unknownHandler != null) {
+            unknownHandler.write(this, v);
+            return;
+        }
+        throw new IllegalArgumentException(
+            "meep: no writer for value of type " + v.getClass().getName());
     }
 }

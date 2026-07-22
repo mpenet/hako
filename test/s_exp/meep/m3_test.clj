@@ -1,6 +1,6 @@
 (ns s-exp.meep.m3-test
   (:require [clojure.test :refer [deftest is testing]]
-            [s-exp.meep.core :as meep])
+            [s-exp.meep :as meep])
   (:import (java.lang.foreign MemorySegment ValueLayout)))
 
 (deftest zero-copy-bytes

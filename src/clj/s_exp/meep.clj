@@ -1,4 +1,4 @@
-(ns s-exp.meep.core
+(ns s-exp.meep
   "Public API for meep — schemaless, low-alloc Clojure serialization."
   (:require [s-exp.meep.reader :as r]
             [s-exp.meep.writer :as w])
@@ -24,8 +24,9 @@
      (try
        (.setWriteMeta wr (boolean (:meta? opts)))
        (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
+       (w/install-handler! wr)
        (.writeEnvelope wr)
-       (w/write-value! wr value)
+       (.writeAny wr value)
        (let [seg (.finish wr)
              n (.byteSize seg)
              arr (byte-array n)]
@@ -43,8 +44,9 @@
      (try
        (.setWriteMeta wr (boolean (:meta? opts)))
        (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
+       (w/install-handler! wr)
        (.writeEnvelope wr)
-       (w/write-value! wr value)
+       (.writeAny wr value)
        (let [src (.finish wr)
              n (.byteSize src)
              dst (.allocate arena n 1)]
@@ -68,8 +70,9 @@
    (.reset wr)
    (.setWriteMeta wr (boolean (:meta? opts)))
    (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
+   (w/install-handler! wr)
    (.writeEnvelope wr)
-   (w/write-value! wr value)
+   (.writeAny wr value)
    (.finish wr)))
 
 (defn reader
