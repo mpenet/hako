@@ -213,6 +213,45 @@ Byte-level spec in [SPEC.md](SPEC.md). Worked examples in
 - Per-message symbol table for interned keyword / symbol payloads.
 - Zero shared state across messages.
 
+## Security
+
+hako is designed for decoding untrusted input safely. Key guarantees:
+
+- **No arbitrary class loading.** Records only instantiate classes
+  registered via `ext/register-record!` — the wire carries a
+  classname string, but hako looks it up in the registry rather than
+  calling `Class.forName`. An attacker cannot force instantiation of
+  arbitrary Java classes.
+- **No arbitrary code execution via user-tags.** User-tag ids
+  dispatch through the `register-user-tag!` registry. Unregistered
+  ids throw by default; `:tolerate-unknown-tags true` returns an
+  opaque `TaggedValue{:ext id :bytes segment-slice}` — never
+  invokes unknown code.
+- **No Java `Serializable` fallback.** Unlike Nippy, hako has no
+  path to `ObjectInputStream`. Deserialization gadget chains are
+  not applicable.
+- **No decompression.** The wire format doesn't ship compressed
+  payloads — no zip / gzip / snappy decompression on the read path,
+  so no compression-bomb amplification vector.
+- **Per-message symbol table.** Interning state is scoped to one
+  message. A malicious message can't poison state for future decodes.
+- **Bounded reads.** Count and length fields are validated against
+  remaining segment bytes before allocation. Silent truncation for
+  u64-tier counts that exceed `Integer/MAX_VALUE` is rejected
+  cleanly, not truncated.
+- **Envelope enforcement.** Magic + version bytes are checked
+  before any dispatch.
+- **Confined memory.** Encoder writes into `Arena.ofConfined()` —
+  cross-thread misuse is blocked by the FFM layer with
+  `WrongThreadException`, not a memory corruption.
+
+**Not defended against** (out of scope):
+- Malicious user-tag write / read callbacks you register yourself.
+  Registered code runs with your JVM's privileges — vet the
+  callbacks you install.
+- Denial-of-service via extreme payload sizes. hako reads what you
+  give it; enforce input size limits at the transport layer.
+
 ## Benchmarks
 
 Criterium quick-bench, JDK 25, `-server -Xmx4g`, direct-linking on.
