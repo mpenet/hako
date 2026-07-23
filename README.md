@@ -323,7 +323,8 @@ Wire-format specifications:
 
 Other:
 
-- [MIGRATION_NIPPY.md](MIGRATION_NIPPY.md) — Nippy → hako guide.
+- [docs/migration-nippy.md](docs/migration-nippy.md) — Nippy → hako
+  guide.
 - [CHANGELOG.md](CHANGELOG.md) — release notes.
 
 ## Development
