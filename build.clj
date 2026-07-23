@@ -2,7 +2,7 @@
   (:require [clojure.tools.build.api :as b]))
 
 (def lib 'com.s-exp/hako)
-(def version "0.1.0")
+(def version (format "1.0.0-alpha%s" (b/git-count-revs nil)))
 (def class-dir "target/classes")
 (def test-class-dir "target/test-classes")
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
