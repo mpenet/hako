@@ -195,8 +195,19 @@ public final class Reader {
         return s;
     }
 
+    private byte[] stringDecodeBuf = new byte[128];
+
     public String getString(int n) {
-        return new String(getBytes(n), StandardCharsets.UTF_8);
+        if (n == 0) return "";
+        need(n);
+        byte[] buf = stringDecodeBuf;
+        if (buf.length < n) {
+            buf = new byte[Math.max(n, buf.length * 2)];
+            stringDecodeBuf = buf;
+        }
+        MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, pos, buf, 0, n);
+        pos += n;
+        return new String(buf, 0, n, StandardCharsets.UTF_8);
     }
 
     public long[] readLongArray(int n) {

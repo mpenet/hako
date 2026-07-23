@@ -60,7 +60,7 @@
     (println "  deed encode:")       (c/quick-bench (deed/encode-to-bytes payload))
     (when transit-enc
       (println "  transit encode:")  (c/quick-bench (transit-encode payload)))
-    (println "  hako decode:")       (c/quick-bench (hako/decode hako-enc))
+    (println "  hako decode:")       (c/quick-bench (hako/decode hako-enc {:cache-idents true}))
     (println "  nippy decode:")      (c/quick-bench (nippy/thaw nippy-enc))
     (println "  nippy-fast decode:") (c/quick-bench (nippy/fast-thaw nippy-fast-enc))
     (println "  deed decode:")       (c/quick-bench (deed/decode-from deed-enc))
