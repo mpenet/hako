@@ -1,4 +1,5 @@
 # hako
+[![Clojars Project](https://img.shields.io/clojars/v/com.s-exp/hako.svg)](https://clojars.org/com.s-exp/hako)
 
 **Schemaless, low-alloc binary serialization for Clojure.**
 
