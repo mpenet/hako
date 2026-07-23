@@ -25,7 +25,7 @@
   :bench
   {:extra-paths ["bench" "test" "target/classes"]
    :extra-deps {criterium/criterium {:mvn/version "0.4.6"}
-                com.taoensso/nippy {:mvn/version "3.4.2"}
+                com.taoensso/nippy {:mvn/version "3.7.0"}
                 com.github.igrishaev/deed-core {:mvn/version "0.1.0"}
                 com.cognitect/transit-clj {:mvn/version "1.0.333"}}
    :jvm-opts ["--enable-native-access=ALL-UNNAMED"

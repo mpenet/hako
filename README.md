@@ -262,7 +262,7 @@ Single machine — reproduce with `clj -M:bench -m bench`.
 Contenders:
 
 - **hako** — this project.
-- **Nippy** — `com.taoensso/nippy 3.4.2`.
+- **Nippy** — `com.taoensso/nippy 3.7.0`.
   - `nippy` = default `freeze` / `thaw` (Snappy compression + checksums).
   - `nippy-fast` = `fast-freeze` / `fast-thaw` (skips both).
 - **Deed** — `com.github.igrishaev/deed-core 0.1.0`.
@@ -277,33 +277,35 @@ marks those.
 
 | payload              |   hako | vs nippy | vs nippy-fast | vs deed | vs transit |
 |----------------------|-------:|---------:|--------------:|--------:|-----------:|
-| `long-array-1k`      | 869 ns |    3.5×  |         2.9×  |  12.6×  |     26.0×  |
-| `double-array-1k`    | 859 ns |    4.0×  |         3.4×  |  12.6×  |     26.8×  |
-| `nested-map` (50 kw) | 6.6 µs |    2.1×  |         2.1×  |   2.6×  |      5.5×  |
-| `vec-of-longs` (1k)  |  10 µs |    2.9×  |         2.8×  |   2.2×  |      3.2×  |
-| `vec-of-strings`     | 2.0 µs |    1.7×  |         1.7×  |   1.9×  |      3.5×  |
-| `mixed`              | 396 ns |    1.8×  |         1.6×  |   2.2×  |     11.0×  |
-| `small-map`          | 230 ns |    1.5×  |         1.3×  |   2.8×  |     16.1×  |
-| `string-10k`         | 1.6 µs |    1.6×  |         1.0×  |   1.3×  |      2.8×  |
-| `string-100`         | 102 ns |    1.3×  |     **0.8×**  |   3.9×  |     29.5×  |
+| `long-array-1k`      | 886 ns |   22.2×  |        22.2×  |  12.6×  |     25.1×  |
+| `double-array-1k`    | 864 ns |   26.1×  |        12.6×  |  12.7×  |     28.6×  |
+| `vec-of-longs` (1k)  | 8.2 µs |    2.4×  |         2.3×  |   2.6×  |      3.8×  |
+| `nested-map` (50 kw) | 6.4 µs |    1.6×  |         1.6×  |   2.5×  |      5.8×  |
+| `vec-of-strings`     | 1.8 µs |    1.3×  |         1.3×  |   2.1×  |      3.9×  |
+| `mixed`              | 399 ns |    1.4×  |         1.3×  |   2.1×  |     10.2×  |
+| `small-map`          | 230 ns |    1.3×  |         1.1×  |   2.7×  |     15.4×  |
+| `string-10k`         | 1.6 µs |    1.7×  |     **0.7×**  |   1.3×  |      2.8×  |
+| `string-100`         | 110 ns |    1.2×  |     **0.6×**  |   3.8×  |     26.5×  |
 
 ### Decode
 
 | payload              |   hako | vs nippy | vs nippy-fast | vs deed | vs transit |
 |----------------------|-------:|---------:|--------------:|--------:|-----------:|
-| `long-array-1k`      | 612 ns |    4.1×  |         3.6×  |  18.0×  |    312.9×  |
-| `double-array-1k`    | 621 ns |    4.0×  |         3.5×  |  17.3×  |    285.3×  |
-| `nested-map` (50 kw) | 8.4 µs |    2.1×  |         2.0×  |   3.0×  |      6.5×  |
-| `vec-of-longs` (1k)  |  11 µs |    2.1×  |         2.1×  |   2.2×  |     17.9×  |
-| `vec-of-strings`     | 4.8 µs |    1.3×  |         1.5×  |   1.6×  |      3.4×  |
-| `mixed`              | 434 ns |    2.1×  |         2.0×  |   3.0×  |     10.5×  |
-| `small-map`          | 267 ns |    1.4×  |         1.0×  |   2.9×  |     12.3×  |
-| `string-10k`         | 974 ns |    4.3×  |         1.2×  |   1.8×  |      5.9×  |
-| `string-100`         |  53 ns |    2.1×  |         1.2×  |  10.6×  |     52.5×  |
+| `long-array-1k`      | 645 ns |   21.5×  |        21.3×  |  16.3×  |    298.5×  |
+| `double-array-1k`    | 626 ns |   19.6×  |        13.1×  |  17.3×  |    280.3×  |
+| `nested-map` (50 kw) | 8.0 µs |    1.8×  |         1.8×  |   3.2×  |      7.0×  |
+| `vec-of-longs` (1k)  |  12 µs |    1.2×  |         1.2×  |   2.3×  |     16.4×  |
+| `mixed`              | 449 ns |    1.5×  |         1.3×  |   3.0×  |     10.3×  |
+| `string-10k`         | 979 ns |    3.8×  |         1.1×  |   1.8×  |      5.9×  |
+| `vec-of-strings`     | 4.9 µs |**0.8×**  |     **0.7×**  |   1.7×  |      3.3×  |
+| `small-map`          | 282 ns |**0.9×**  |     **0.7×**  |   2.8×  |     11.5×  |
+| `string-100`         |  64 ns |    1.7×  |     **0.7×**  |   8.9×  |     43.1× |
 
-**One trailing cell:** `string-100` encode, 24 ns dispatch overhead
-vs `nippy-fast` on tiny strings. Everywhere else, hako matches or
-comes out ahead.
+Nippy 3.7.0's `fast-freeze` / `fast-thaw` now edge out hako on a
+handful of tiny-payload cells (`string-100`, `small-map`,
+`vec-of-strings`, `string-10k` decode). hako still dominates prim
+arrays (12–22×) and structural payloads (`nested-map`, `mixed`,
+`vec-of-longs`).
 
 ### Records — 100 defrecords in a vector
 
@@ -319,19 +321,20 @@ comes out ahead.
 |---|---:|---:|---:|---:|---:|
 | `nested-map` (50 kw)  |   **732 B** |  1632 B |  1628 B |  3598 B |  1128 B |
 | `vec-of-longs` (1k)   |    2740 B  |  2878 B |  2874 B | 10024 B | **2619 B** |
-| `long-array-1k`       |    8009 B  |  8038 B |  8034 B |  8040 B | **2619 B** |
+| `long-array-1k`       |    8009 B  | **2880 B** | 2876 B |  8040 B |  2619 B |
+| `double-array-1k`     |    8009 B  | **4165 B** | 8997 B |  8040 B |  9003 B |
 | `vec-of-strings`      |     797 B  |   896 B |   892 B |  1330 B |  **793 B** |
 | `mixed`               |    **46 B**|    55 B |    51 B |   154 B |    54 B  |
 | `small-map`           |     37 B   |    39 B |    35 B |   101 B | **34 B** |
 | `string-100`          |    107 B   |   106 B | **102 B**|  140 B |   108 B  |
 | `string-10k`          |   10008 B  |**61 B** | 10003 B | 10040 B | 10008 B  |
 
-`nippy` (default) compresses via Snappy — the 10 000-character
-repeating-`x` string collapses to 61 B. Compression's speed cost is
-visible in the decode column (4.19 µs vs hako's 974 ns). Transit's
-variable-length int encoding wins on numeric arrays with small values.
-On real Clojure-shaped data (`nested-map`), hako's per-message symbol
-table gives it the edge.
+`nippy` 3.7.0 introduced varint-compressed prim arrays — `long[]`
+shrinks from 8034 B to 2880 B. The size win costs encode / decode
+speed (12–22× slower than hako's raw i64 pack). Snappy compression
+still collapses the 10 000-character repeating-`x` string to 61 B.
+On structural Clojure data (`nested-map`), hako's per-message symbol
+table keeps it ahead.
 
 ### Reproduce
 
