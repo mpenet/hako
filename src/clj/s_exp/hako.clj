@@ -1,8 +1,8 @@
-(ns s-exp.meep
-  "Public API for meep — schemaless, low-alloc Clojure serialization."
-  (:require [s-exp.meep.reader :as r]
-            [s-exp.meep.writer :as w])
-  (:import (com.s_exp.meep Reader Writer)
+(ns s-exp.hako
+  "Public API for hako — schemaless, low-alloc Clojure serialization."
+  (:require [s-exp.hako.reader :as r]
+            [s-exp.hako.writer :as w])
+  (:import (com.s_exp.hako Reader Writer)
            (java.lang.foreign Arena MemorySegment ValueLayout)))
 
 (set! *warn-on-reflection* true)
@@ -82,9 +82,11 @@
   (let [seg (cond
               (instance? MemorySegment src) src
               (bytes? src) (MemorySegment/ofArray ^bytes src)
-              :else (throw (ex-info "meep: unsupported source"
-                                    {:type (class src)})))]
-    (Reader. seg)))
+              :else (throw (ex-info "hako: unsupported source"
+                                    {:type (class src)})))
+        rd (Reader. seg)]
+    (r/configure! rd)
+    rd))
 
 (defn decode-into!
   "Decode a value using the reusable Reader `rd` rebound to `src`.
@@ -94,17 +96,18 @@
    (let [seg (cond
                (instance? MemorySegment src) src
                (bytes? src) (MemorySegment/ofArray ^bytes src)
-               :else (throw (ex-info "meep: unsupported source"
+               :else (throw (ex-info "hako: unsupported source"
                                      {:type (class src)})))]
      (.reset rd seg)
+     (r/configure! rd)
      (.setZeroCopy rd (boolean (:zero-copy? opts)))
      (.setTolerant rd (boolean (:tolerant? opts)))
      (.setCacheIdents rd (boolean (:cache-idents? opts)))
      (.readEnvelope rd)
-     (r/read-value! rd))))
+     (.readAny rd))))
 
 (defn decode
-  "Decode a meep-format value from `src` — a byte[] or a MemorySegment.
+  "Decode a hako-format value from `src` — a byte[] or a MemorySegment.
 
   Options:
     :zero-copy? — return MemorySegment slices for byte payloads instead of
@@ -121,11 +124,12 @@
    (let [seg (cond
                (instance? MemorySegment src) src
                (bytes? src) (MemorySegment/ofArray ^bytes src)
-               :else (throw (ex-info "meep: unsupported source"
+               :else (throw (ex-info "hako: unsupported source"
                                      {:type (class src)})))
          rd (Reader. seg)]
+     (r/configure! rd)
      (.setZeroCopy rd (boolean (:zero-copy? opts)))
      (.setTolerant rd (boolean (:tolerant? opts)))
      (.setCacheIdents rd (boolean (:cache-idents? opts)))
      (.readEnvelope rd)
-     (r/read-value! rd))))
+     (.readAny rd))))

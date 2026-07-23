@@ -1,4 +1,4 @@
-# meep
+# hako
 
 Schemaless, low-alloc binary serialization for Clojure.
 
@@ -22,15 +22,15 @@ registry documented in [EXTENSIONS.md](EXTENSIONS.md).
 
 ```clj
 ;; deps.edn
-{:deps {com.s-exp/meep {:mvn/version "0.1.0"}}
+{:deps {com.s-exp/hako {:mvn/version "0.1.0"}}
  :aliases {:run {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]}}}
 ```
 
 ```clj
-(require '[s-exp.meep :as meep])
+(require '[s-exp.hako :as hako])
 
-(def bs (meep/encode {:name "Alice" :tags #{:a :b :c} :score 42}))
-(meep/decode bs)
+(def bs (hako/encode {:name "Alice" :tags #{:a :b :c} :score 42}))
+(hako/decode bs)
 ;; => {:name "Alice", :tags #{:a :b :c}, :score 42}
 ```
 
@@ -39,17 +39,17 @@ registry documented in [EXTENSIONS.md](EXTENSIONS.md).
 ### Encoding
 
 ```clj
-(meep/encode value)                    ; -> byte[]
-(meep/encode value opts)               ; -> byte[]
+(hako/encode value)                    ; -> byte[]
+(hako/encode value opts)               ; -> byte[]
 
-(meep/encode-to-segment arena value)   ; -> MemorySegment (caller owns arena)
-(meep/encode-to-segment arena value opts)
+(hako/encode-to-segment arena value)   ; -> MemorySegment (caller owns arena)
+(hako/encode-to-segment arena value opts)
 
 ;; Reusable writer for high-throughput encode loops:
-(let [wr (meep/writer 4096)]           ; initial buffer size in bytes
+(let [wr (hako/writer 4096)]           ; initial buffer size in bytes
   (try
     (dotimes [_ 1000]
-      (let [seg (meep/encode-into! wr some-value)]
+      (let [seg (hako/encode-into! wr some-value)]
         ;; consume seg before next call
         ...))
     (finally (.close wr))))
@@ -66,12 +66,12 @@ registry documented in [EXTENSIONS.md](EXTENSIONS.md).
 ### Decoding
 
 ```clj
-(meep/decode src)                      ; src is byte[] or MemorySegment
-(meep/decode src opts)
+(hako/decode src)                      ; src is byte[] or MemorySegment
+(hako/decode src opts)
 
 ;; Reusable reader:
-(let [rd (meep/reader some-src)]
-  (meep/decode-into! rd another-src)   ; rebinds and resets state
+(let [rd (hako/reader some-src)]
+  (hako/decode-into! rd another-src)   ; rebinds and resets state
   ...)
 ```
 
@@ -110,12 +110,12 @@ runtime threshold). See `SPEC.md` §5 for the roundtrip contract.
 ### Records
 
 ```clj
-(require '[s-exp.meep.ext :as ext])
+(require '[s-exp.hako.ext :as ext])
 
 (defrecord Point [x y])
 (ext/register-record! Point)
 
-(meep/decode (meep/encode (->Point 3 4)))
+(hako/decode (hako/encode (->Point 3 4)))
 ;; => #user.Point{:x 3, :y 4}
 ```
 
@@ -127,8 +127,8 @@ Unregistered record classes cause an encode-time error.
 
 ```clj
 (import '(java.net URI))
-(require '[s-exp.meep.ext :as ext]
-         '[s-exp.meep :as meep])
+(require '[s-exp.hako.ext :as ext]
+         '[s-exp.hako :as hako])
 
 (ext/register-user-tag!
   0x10000001
@@ -141,7 +141,7 @@ Unregistered record classes cause an encode-time error.
           n (.readTierPayload r (int low))]
       (URI. (.getString r (int n))))))
 
-(meep/decode (meep/encode (URI. "https://example.com")))
+(hako/decode (hako/encode (URI. "https://example.com")))
 ;; => #object[java.net.URI ...]
 ```
 
@@ -154,7 +154,7 @@ message. See EXTENSIONS.md §E.2.
 Opt in per encode:
 
 ```clj
-(meep/encode (with-meta [1 2 3] {:tag :vec})
+(hako/encode (with-meta [1 2 3] {:tag :vec})
              {:meta? true})
 ```
 
@@ -162,7 +162,7 @@ Opt in per encode:
 
 Byte-level spec in [SPEC.md](SPEC.md). Highlights:
 
-- 5-byte envelope `<magic 'MEEP'><version 0>`.
+- 5-byte envelope `<magic 'HAKO'><version 0>`.
 - Every value starts with a tag byte: high nibble = major type,
   low nibble = size tier or subtype.
 - Fixed-width size tiers (inline 0–11, u8, u16, u32, u64) — no
@@ -175,7 +175,7 @@ Byte-level spec in [SPEC.md](SPEC.md). Highlights:
 
 Criterium quick-bench, JDK 25, `-server -Xmx4g`, direct-linking on.
 
-| payload | meep enc | nippy enc | deed enc | meep dec | nippy dec | deed dec |
+| payload | hako enc | nippy enc | deed enc | hako dec | nippy dec | deed dec |
 |---|---:|---:|---:|---:|---:|---:|
 | `long-array-1k` | **902 ns** | 2.73 µs | 11.1 µs | **624 ns** | 2.30 µs | 11.0 µs |
 | `double-array-1k` | **871 ns** | 3.11 µs | 11.1 µs | **620 ns** | 2.35 µs | 11.0 µs |
@@ -187,7 +187,7 @@ Criterium quick-bench, JDK 25, `-server -Xmx4g`, direct-linking on.
 | small-map | **267 ns** | 293 ns | 642 ns | 317 ns | **287 ns** | 803 ns |
 | mixed | **478 ns** | 660 ns | 864 ns | **441 ns** | 797 ns | 1.36 µs |
 
-Encoded size on `nested-map`: meep 732 B, nippy 1628 B, deed 3598 B.
+Encoded size on `nested-map`: hako 732 B, nippy 1628 B, deed 3598 B.
 
 Reproduce: `clj -M:bench -m bench`.
 
@@ -203,12 +203,12 @@ Layout:
 
 ```
 src/
-  java/com/s_exp/meep/    -- Format, Writer, Reader (hot path)
+  java/com/s_exp/hako/    -- Format, Writer, Reader (hot path)
   clj/s_exp/
-    meep.clj              -- public API
-    meep/reader.clj       -- decode dispatch
-    meep/writer.clj       -- encode dispatch fallback
-    meep/ext.clj          -- record + user-tag registries
+    hako.clj              -- public API
+    hako/reader.clj       -- decode dispatch
+    hako/writer.clj       -- encode dispatch fallback
+    hako/ext.clj          -- record + user-tag registries
 test/
 bench/
 SPEC.md

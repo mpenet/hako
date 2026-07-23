@@ -1,4 +1,4 @@
-package com.s_exp.meep;
+package com.s_exp.hako;
 
 import clojure.lang.BigInt;
 import clojure.lang.IObj;
@@ -21,7 +21,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Mutable meep-format encoder. Owns an internal Arena and grows the
+ * Mutable hako-format encoder. Owns an internal Arena and grows the
  * MemorySegment by doubling on overflow. NOT thread-safe. One-shot.
  */
 public final class Writer implements AutoCloseable {
@@ -36,6 +36,7 @@ public final class Writer implements AutoCloseable {
     private long nextSymIdx = 0;
     private boolean writeMeta = false;
     private boolean packHomogeneous = false;
+    private boolean coerceCustomComparator = false;
 
     public Writer(long initialSize) {
         if (initialSize < 1) initialSize = 64;
@@ -56,6 +57,10 @@ public final class Writer implements AutoCloseable {
     public boolean packHomogeneous() { return packHomogeneous; }
 
     public void setPackHomogeneous(boolean b) { this.packHomogeneous = b; }
+
+    public boolean coerceCustomComparator() { return coerceCustomComparator; }
+
+    public void setCoerceCustomComparator(boolean b) { this.coerceCustomComparator = b; }
 
     /**
      * Handler invoked for values that don't match any built-in
@@ -89,6 +94,7 @@ public final class Writer implements AutoCloseable {
         nextSymIdx = 0;
         writeMeta = false;
         packHomogeneous = false;
+        coerceCustomComparator = false;
         unknownHandler = null;
     }
 
@@ -102,7 +108,7 @@ public final class Writer implements AutoCloseable {
     private void ensure(long n) {
         if (n < 0 || n > MAX_CAP - pos) {
             throw new IllegalStateException(
-                "meep: write exceeds max buffer capacity (" + MAX_CAP + " bytes)");
+                "hako: write exceeds max buffer capacity (" + MAX_CAP + " bytes)");
         }
         long need = pos + n;
         if (need <= cap) return;
@@ -302,7 +308,7 @@ public final class Writer implements AutoCloseable {
         long payloadStart = lenMark + 5;
         long payloadLen = pos - payloadStart;
         if (payloadLen > 0xFFFFFFFFL) {
-            throw new IllegalStateException("meep: user-tag payload exceeds 4 GiB");
+            throw new IllegalStateException("hako: user-tag payload exceeds 4 GiB");
         }
         seg.set(ValueLayout.JAVA_BYTE, lenMark, (byte) Format.TIER_U32);
         seg.set(Format.LE_INT, lenMark + 1, (int) payloadLen);
@@ -353,7 +359,7 @@ public final class Writer implements AutoCloseable {
         byte[] nameBs = name.getBytes(StandardCharsets.UTF_8);
         int nsLen = nsBs.length;
         if (nsLen > 0xFF) {
-            throw new IllegalArgumentException("meep: identifier namespace exceeds 255 bytes");
+            throw new IllegalArgumentException("hako: identifier namespace exceeds 255 bytes");
         }
         int payloadLen = 1 + nsLen + nameBs.length;
         putSizedTag(major, payloadLen);
@@ -494,6 +500,7 @@ public final class Writer implements AutoCloseable {
 
         // Delegate types that overlap generic interfaces below.
         if (v instanceof clojure.lang.IRecord
+            || v.getClass().isRecord()
             || v instanceof clojure.lang.PersistentTreeSet
             || v instanceof clojure.lang.PersistentTreeMap
             || v instanceof clojure.lang.PersistentQueue) {
@@ -550,6 +557,6 @@ public final class Writer implements AutoCloseable {
             return;
         }
         throw new IllegalArgumentException(
-            "meep: no writer for value of type " + v.getClass().getName());
+            "hako: no writer for value of type " + v.getClass().getName());
     }
 }

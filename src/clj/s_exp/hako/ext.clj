@@ -1,8 +1,8 @@
-(ns s-exp.meep.ext
+(ns s-exp.hako.ext
   "Extension registry: records, sorted-collection helpers, user tags."
   (:import (clojure.lang PersistentTreeMap PersistentTreeSet)
            (java.lang.foreign MemorySegment)
-           (java.lang.invoke MethodHandle MethodHandles)
+           (java.lang.invoke MethodHandle MethodHandles MethodType)
            (java.lang.reflect Constructor)))
 
 (set! *warn-on-reflection* true)
@@ -33,37 +33,81 @@
 
 (def ^:private record-registry (atom {}))
 
-(defn- record-basis
-  "Return the ordered vector of basis field-symbols for a defrecord class."
+(defn- clj-record?
+  "True when `klass` is a Clojure defrecord — it exposes a static
+  `getBasis` method returning the field-name vector."
+  [^Class klass]
+  (try
+    (.getDeclaredMethod klass "getBasis" (into-array Class []))
+    true
+    (catch NoSuchMethodException _ false)))
+
+(defn- clj-record-basis
+  "Ordered vector of basis field-symbols for a Clojure defrecord."
   [^Class klass]
   (let [m (.getDeclaredMethod klass "getBasis" (into-array Class []))]
     (.invoke m nil (into-array Object []))))
+
+(defn- java-record-components
+  "Ordered vector of field-name strings for a Java record (JEP 395)."
+  [^Class klass]
+  (mapv #(.getName ^java.lang.reflect.RecordComponent %)
+        (.getRecordComponents klass)))
 
 (defn- find-canonical-ctor
   ^Constructor [^Class klass ^long n]
   (or (some (fn [^Constructor c]
               (when (= (.getParameterCount c) n) c))
             (.getConstructors klass))
-      (throw (ex-info "meep: canonical ctor not found for record"
+      (throw (ex-info "hako: canonical ctor not found for record"
                       {:class (.getName klass) :field-count n}))))
 
+(defn- java-record-accessor-mhs
+  "Cache MethodHandles for each RecordComponent's accessor method."
+  [^Class klass]
+  (let [lookup (MethodHandles/lookup)]
+    (mapv (fn [^java.lang.reflect.RecordComponent rc]
+            (.unreflect lookup (.getAccessor rc)))
+          (.getRecordComponents klass))))
+
+(defn- record-info
+  "Compute registry entry for a record class (Clojure defrecord or Java
+  record)."
+  [^Class klass]
+  (let [java-rec? (.isRecord klass)
+        field-names (cond
+                      java-rec? (java-record-components klass)
+                      (clj-record? klass) (mapv name (clj-record-basis klass))
+                      :else (throw (ex-info "hako: not a record class"
+                                            {:class (.getName klass)})))
+        n (count field-names)
+        field-kws (mapv keyword field-names)
+        ctor (find-canonical-ctor klass n)
+        raw-mh (.unreflectConstructor (MethodHandles/lookup) ctor)
+        ;; Adapt the ctor MH so all params accept Object (via
+        ;; explicitCastArguments' permissive Number→primitive coercion).
+        ;; Otherwise Long → int / short / byte narrowing fails at invoke.
+        generic (MethodType/methodType (.returnType (.type raw-mh))
+                                       (into-array Class (repeat n Object)))
+        mh (MethodHandles/explicitCastArguments raw-mh generic)
+        accessor-mhs (when java-rec? (java-record-accessor-mhs klass))]
+    {:class klass
+     :java-record? java-rec?
+     :field-count n
+     :field-kws field-kws
+     :field-names field-names
+     :accessor-mhs accessor-mhs
+     :ctor-mh mh}))
+
 (defn register-record!
-  "Register a defrecord class so meep can encode / decode its instances.
+  "Register a Clojure defrecord OR Java record class so hako can encode
+  and decode its instances.
 
   Reflects on the class once to discover field order and cache a
   MethodHandle for the canonical positional constructor."
   [^Class klass]
-  (let [basis (record-basis klass)
-        n (count basis)
-        field-kws (mapv (comp keyword name) basis)
-        ctor (find-canonical-ctor klass n)
-        mh (-> (MethodHandles/lookup)
-               (.unreflectConstructor ctor))]
-    (swap! record-registry assoc (.getName klass)
-           {:class klass
-            :field-count n
-            :field-kws field-kws
-            :ctor-mh mh})
+  (let [info (record-info klass)]
+    (swap! record-registry assoc (.getName klass) info)
     klass))
 
 (defn record-info-by-class [^Class klass]

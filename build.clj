@@ -14,3 +14,11 @@
             :javac-opts ["--release" "25"
                          "-Xlint:all"
                          "-Werror"]}))
+
+(def test-class-dir "target/test-classes")
+
+(defn javac-test [_]
+  (b/javac {:src-dirs ["test-java"]
+            :class-dir test-class-dir
+            :basis @basis
+            :javac-opts ["--release" "25"]}))

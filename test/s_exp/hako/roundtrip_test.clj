@@ -1,10 +1,10 @@
-(ns s-exp.meep.roundtrip-test
+(ns s-exp.hako.roundtrip-test
   (:require [clojure.test :refer [deftest is testing]]
-            [s-exp.meep :as meep])
+            [s-exp.hako :as hako])
   (:import (java.time Instant)
            (java.util UUID)))
 
-(defn- rt [v] (meep/decode (meep/encode v)))
+(defn- rt [v] (hako/decode (hako/encode v)))
 
 (deftest scalars
   (testing "nil / bool"
@@ -64,8 +64,8 @@
   (testing "keyword repeated across map"
     (let [m {:a 1 :b 2 :c 3}
           v [m m m m]
-          enc (meep/encode v)
-          dec (meep/decode enc)]
+          enc (hako/encode v)
+          dec (hako/decode enc)]
       (is (= v dec))
       ;; symref should keep repeated encoding compact — sanity: 4 copies
       ;; of {:a :b :c} would be 3*4 = 12 keyword payloads inline.

@@ -1,10 +1,10 @@
 (ns bench
-  "Criterium benchmarks: meep vs Nippy vs Deed.
+  "Criterium benchmarks: hako vs Nippy vs Deed.
 
   Run: clj -M:bench -m bench [payload-label ...]"
   (:require [criterium.core :as c]
             [deed.core :as deed]
-            [s-exp.meep :as meep]
+            [s-exp.hako :as hako]
             [taoensso.nippy :as nippy]))
 
 (def payloads
@@ -22,20 +22,20 @@
 
 (defn- bench-one [label payload]
   (println "===" label "===")
-  (let [meep-enc (meep/encode payload)
+  (let [hako-enc (hako/encode payload)
         nippy-enc (nippy/fast-freeze payload)
         deed-enc (deed/encode-to-bytes payload)]
-    (println "  size  — meep:" (alength meep-enc)
+    (println "  size  — hako:" (alength hako-enc)
              " nippy:" (alength nippy-enc)
              " deed:" (alength deed-enc))
-    (println "  meep encode:")
-    (c/quick-bench (meep/encode payload))
+    (println "  hako encode:")
+    (c/quick-bench (hako/encode payload))
     (println "  nippy encode:")
     (c/quick-bench (nippy/fast-freeze payload))
     (println "  deed encode:")
     (c/quick-bench (deed/encode-to-bytes payload))
-    (println "  meep decode:")
-    (c/quick-bench (meep/decode meep-enc))
+    (println "  hako decode:")
+    (c/quick-bench (hako/decode hako-enc))
     (println "  nippy decode:")
     (c/quick-bench (nippy/fast-thaw nippy-enc))
     (println "  deed decode:")

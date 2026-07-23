@@ -1,18 +1,18 @@
-package com.s_exp.meep;
+package com.s_exp.hako;
 
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteOrder;
 
 /**
- * Meep binary format — constants and static helpers.
+ * Hako binary format — constants and static helpers.
  * See SPEC.md.
  */
 public final class Format {
 
-    public static final byte MAGIC_0 = 0x4D;
-    public static final byte MAGIC_1 = 0x45;
-    public static final byte MAGIC_2 = 0x45;
-    public static final byte MAGIC_3 = 0x50;
+    public static final byte MAGIC_0 = 0x48; // 'H'
+    public static final byte MAGIC_1 = 0x41; // 'A'
+    public static final byte MAGIC_2 = 0x4B; // 'K'
+    public static final byte MAGIC_3 = 0x4F; // 'O'
     public static final byte VERSION = 0x00;
 
     public static final int M_UINT = 0x00;

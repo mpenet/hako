@@ -1,0 +1,14 @@
+target/
+.cpcache/
+.clj-kondo/.cache/
+.lsp/.cache/
+.agent-shell/
+pom.xml
+pom.xml.asc
+.DS_Store
+*.iml
+.idea/
+.vscode/
+.nrepl-port
+.rebel_readline_history
+*.class

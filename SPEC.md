@@ -1,4 +1,4 @@
-# Meep binary format — v0
+# Hako binary format — v0
 
 Schemaless, self-describing, one-shot, JVM-focused, little-endian.
 
@@ -26,7 +26,7 @@ All fixed-width integers and floats are **little-endian**.
 <magic:4><version:1><root-value>
 ```
 
-- `magic` = `0x4D 0x45 0x45 0x50` ("MEEP")
+- `magic` = `0x48 0x41 0x4B 0x4F` ("HAKO")
 - `version` = `0x00` for this document
 
 `root-value` follows the encoding in §3.

@@ -1,4 +1,4 @@
-# Meep extensions — v0
+# Hako extensions — v0
 
 Extension namespace: tag major `0xE` (see `SPEC.md` §4).
 
@@ -54,7 +54,7 @@ Payload maximum: 2^32 − 1 bytes (~4 GB).
 
 Ranges:
 
-- `0x00000000` – `0x0000FFFF` — reserved for meep core.
+- `0x00000000` – `0x0000FFFF` — reserved for hako core.
 - `0x00010000` – `0x0FFFFFFF` — registered third-party tags.
 - `0x10000000` – `0xFFFFFFFF` — private / application-defined.
 
@@ -66,7 +66,7 @@ Reader options:
 
 - `:tolerant? true` — an unregistered user-tag id is not fatal. The
   decoder skips over the length-prefixed payload and yields a
-  `s-exp.meep.ext/TaggedValue{:ext id :bytes payload}` where `payload`
+  `s-exp.hako.ext/TaggedValue{:ext id :bytes payload}` where `payload`
   is a `MemorySegment` slice of the raw bytes. Unknown built-in ext
   subtypes (0..6) still throw — those are spec bugs, not schema drift.
 - `:tolerant? false` (default) — an unregistered user-tag id throws

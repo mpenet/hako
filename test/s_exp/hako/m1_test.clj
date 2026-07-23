@@ -1,11 +1,11 @@
-(ns s-exp.meep.m1-test
+(ns s-exp.hako.m1-test
   (:require [clojure.test :refer [deftest is testing]]
-            [s-exp.meep :as meep]
-            [s-exp.meep.ext :as ext]))
+            [s-exp.hako :as hako]
+            [s-exp.hako.ext :as ext]))
 
 (defn- rt
-  ([v] (meep/decode (meep/encode v)))
-  ([v opts] (meep/decode (meep/encode v opts))))
+  ([v] (hako/decode (hako/encode v)))
+  ([v opts] (hako/decode (hako/encode v opts))))
 
 ;; -- Bignumeric -------------------------------------------------------------
 
@@ -39,9 +39,9 @@
       (is (= [[:a 1] [:b 2] [:c 3]] (vec r)))))
   (testing "custom comparator fails to encode"
     (is (thrown? Exception
-                 (meep/encode (sorted-set-by #(compare %2 %1) 1 2 3))))
+                 (hako/encode (sorted-set-by #(compare %2 %1) 1 2 3))))
     (is (thrown? Exception
-                 (meep/encode (sorted-map-by #(compare %2 %1) :a 1 :b 2))))))
+                 (hako/encode (sorted-map-by #(compare %2 %1) :a 1 :b 2))))))
 
 ;; -- Queue -------------------------------------------------------------------
 
@@ -74,14 +74,14 @@
       (is (instance? Point (:start r)))))
   (testing "vector of records — classname interned"
     (let [xs (mapv ->Point (range 100) (range 100 200))
-          enc (meep/encode xs)
-          r (meep/decode enc)]
+          enc (hako/encode xs)
+          r (hako/decode enc)]
       (is (= xs r))
       ;; classname stored once + 99 symrefs; each Point is 3 fields
       ;; (record tag + symref + count-tier + 2 vals). Ballpark check.
       (is (< (alength enc) 1500))))
   (testing "unregistered class fails"
-    (is (thrown? Exception (meep/encode (->UnregisteredForSure 1))))))
+    (is (thrown? Exception (hako/encode (->UnregisteredForSure 1))))))
 
 ;; -- Metadata ---------------------------------------------------------------
 

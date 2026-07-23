@@ -1,7 +1,7 @@
-(ns s-exp.meep.m2-test
+(ns s-exp.hako.m2-test
   (:require [clojure.test :refer [deftest is testing]]
-            [s-exp.meep :as meep])
-  (:import (com.s_exp.meep Writer)
+            [s-exp.hako :as hako])
+  (:import (com.s_exp.hako Writer)
            (java.lang.foreign MemorySegment ValueLayout)))
 
 (defn- seg->bytes [^MemorySegment s]
@@ -12,29 +12,29 @@
 
 (deftest prim-long-array
   (let [xs (long-array [1 2 3 -1 Long/MAX_VALUE Long/MIN_VALUE 0])
-        r (meep/decode (meep/encode xs))]
+        r (hako/decode (hako/encode xs))]
     (is (= (class xs) (class r)))
     (is (java.util.Arrays/equals xs ^longs r))))
 
 (deftest prim-double-array
   (let [xs (double-array [1.0 -2.5 3.14 Double/MAX_VALUE Double/MIN_VALUE])
-        r (meep/decode (meep/encode xs))]
+        r (hako/decode (hako/encode xs))]
     (is (= (class xs) (class r)))
     (is (java.util.Arrays/equals xs ^doubles r))))
 
 (deftest reusable-writer
-  (let [wr (meep/writer 1024)]
+  (let [wr (hako/writer 1024)]
     (try
       (testing "sequential encode-into! reuses buffer"
         (doseq [v [1 [1 2 3] {:a 1} "hello" (long-array [1 2 3])]]
-          (let [seg (meep/encode-into! wr v)
+          (let [seg (hako/encode-into! wr v)
                 bs (seg->bytes seg)]
-            (is (or (= v (meep/decode bs))
+            (is (or (= v (hako/decode bs))
                     (and (bytes? bs)
                          (java.util.Arrays/equals ^longs v
-                                                  ^longs (meep/decode bs))))))))
+                                                  ^longs (hako/decode bs))))))))
       (testing "state resets between encodes (sym table cleared)"
-        (let [seg1 (seg->bytes (meep/encode-into! wr :foo))
-              seg2 (seg->bytes (meep/encode-into! wr :foo))]
+        (let [seg1 (seg->bytes (hako/encode-into! wr :foo))
+              seg2 (seg->bytes (hako/encode-into! wr :foo))]
           (is (java.util.Arrays/equals seg1 seg2))))
       (finally (.close wr)))))
