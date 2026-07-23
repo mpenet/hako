@@ -11,12 +11,21 @@
 ;; guard fires from ensure() before any allocation.
 
 (deftest capacity-overflow-throws
-  ;; We indirectly test that ensure() rejects excessive writes by targeting
-  ;; the constant MAX_CAP boundary. A dummy long-array claiming N * 8 bytes
-  ;; will always be well below MAX_CAP for anything a test can allocate,
-  ;; so we assert that a modest encode still works after the guard was added.
-  (let [xs (long-array [1 2 3])]
-    (is (= (class xs) (class (hako/decode (hako/encode xs)))))))
+  (testing "modest encode still works alongside the guard"
+    (let [xs (long-array [1 2 3])]
+      (is (= (class xs) (class (hako/decode (hako/encode xs)))))))
+  (testing "ensureForTesting rejects negative n"
+    (let [w (com.s_exp.hako.Writer. 64)]
+      (try
+        (is (thrown-with-msg? Exception #"max buffer capacity"
+                              (.ensureForTesting w -1)))
+        (finally (.close w)))))
+  (testing "ensureForTesting rejects n exceeding MAX_CAP"
+    (let [w (com.s_exp.hako.Writer. 64)]
+      (try
+        (is (thrown-with-msg? Exception #"max buffer capacity"
+                              (.ensureForTesting w Long/MAX_VALUE)))
+        (finally (.close w))))))
 
 ;; -- P0.2: u64-tier count guard rejects >Integer/MAX_VALUE -------------------
 

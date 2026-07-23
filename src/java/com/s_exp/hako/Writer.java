@@ -120,6 +120,12 @@ public final class Writer implements AutoCloseable {
         cap = newCap;
     }
 
+    /**
+     * Test-only hook that exercises the ensure() overflow guard.
+     * Not intended for production callers.
+     */
+    public void ensureForTesting(long n) { ensure(n); }
+
     public void putByte(int b) {
         ensure(1);
         seg.set(ValueLayout.JAVA_BYTE, pos, (byte) b);
@@ -468,9 +474,11 @@ public final class Writer implements AutoCloseable {
     }
 
     private void writeSeqAny(ISeq s) {
-        // Materialize once to know count.
+        // Materialize once to know count. Normalize via .seq() so empty
+        // seqs / lists yield null (skip the loop) rather than looping
+        // once with a null element.
         java.util.ArrayList<Object> tmp = new java.util.ArrayList<>();
-        for (ISeq cur = s; cur != null; cur = cur.next()) tmp.add(cur.first());
+        for (ISeq cur = s.seq(); cur != null; cur = cur.next()) tmp.add(cur.first());
         int n = tmp.size();
         writeListHeader(n);
         for (int i = 0; i < n; i++) writeAny(tmp.get(i));

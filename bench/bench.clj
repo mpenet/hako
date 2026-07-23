@@ -1,11 +1,16 @@
 (ns bench
-  "Criterium benchmarks: hako vs Nippy vs Deed.
+  "Criterium benchmarks: hako vs Nippy vs Deed vs Transit.
+
+  Note: Transit is a different niche (JSON-shaped, cross-lang) but
+  included as a size / speed reference.
 
   Run: clj -M:bench -m bench [payload-label ...]"
-  (:require [criterium.core :as c]
+  (:require [cognitect.transit :as transit]
+            [criterium.core :as c]
             [deed.core :as deed]
             [s-exp.hako :as hako]
-            [taoensso.nippy :as nippy]))
+            [taoensso.nippy :as nippy])
+  (:import (java.io ByteArrayInputStream ByteArrayOutputStream)))
 
 (def payloads
   {:small-map {:name "Alice" :age 30 :city "Paris"}
@@ -20,26 +25,48 @@
    :string-10k (apply str (repeat 10000 "x"))
    :mixed [1 :kw "str" {:a 1 :b [2 3 4]} #{:x :y :z} 3.14]})
 
+(defn- transit-encode ^bytes [payload]
+  (let [baos (ByteArrayOutputStream. 512)
+        w (transit/writer baos :msgpack)]
+    (transit/write w payload)
+    (.toByteArray baos)))
+
+(defn- transit-decode [^bytes bs]
+  (let [bais (ByteArrayInputStream. bs)
+        r (transit/reader bais :msgpack)]
+    (transit/read r)))
+
+(defn- safe-transit-encode [payload]
+  (try (transit-encode payload) (catch Exception _ nil)))
+
 (defn- bench-one [label payload]
   (println "===" label "===")
   (let [hako-enc (hako/encode payload)
         nippy-enc (nippy/fast-freeze payload)
-        deed-enc (deed/encode-to-bytes payload)]
+        deed-enc (deed/encode-to-bytes payload)
+        transit-enc (safe-transit-encode payload)]
     (println "  size  — hako:" (alength hako-enc)
              " nippy:" (alength nippy-enc)
-             " deed:" (alength deed-enc))
+             " deed:" (alength deed-enc)
+             " transit:" (if transit-enc (alength transit-enc) "n/a"))
     (println "  hako encode:")
     (c/quick-bench (hako/encode payload))
     (println "  nippy encode:")
     (c/quick-bench (nippy/fast-freeze payload))
     (println "  deed encode:")
     (c/quick-bench (deed/encode-to-bytes payload))
+    (when transit-enc
+      (println "  transit encode:")
+      (c/quick-bench (transit-encode payload)))
     (println "  hako decode:")
     (c/quick-bench (hako/decode hako-enc))
     (println "  nippy decode:")
     (c/quick-bench (nippy/fast-thaw nippy-enc))
     (println "  deed decode:")
-    (c/quick-bench (deed/decode-from deed-enc))))
+    (c/quick-bench (deed/decode-from deed-enc))
+    (when transit-enc
+      (println "  transit decode:")
+      (c/quick-bench (transit-decode transit-enc)))))
 
 (defn -main [& args]
   (let [selected (if (seq args)
