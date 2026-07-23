@@ -201,25 +201,14 @@ unconditional on the wire; the reader always reapplies
 
 ## Extension subtype registry
 
-The full extension-subtype map (see [../EXTENSIONS.md](../EXTENSIONS.md)
-for canonical definitions):
+Canonical byte-level definitions live in
+[../EXTENSIONS.md](../EXTENSIONS.md). Key points from a user
+perspective:
 
-| Low nibble | Name            | Frame                                                    |
-|------------|-----------------|----------------------------------------------------------|
-| `0`        | `sorted-set`    | tier-value count + values                                 |
-| `1`        | `sorted-map`    | tier-value count + (k, v) pairs                          |
-| `2`        | `queue`         | tier-value count + values                                 |
-| `3`        | `record`        | symref classname + tier-value field count + values       |
-| `4`        | `with-meta`     | inner value + meta map                                    |
-| `5`        | `prim-longs`    | tier-value count + N × i64 LE                             |
-| `6`        | `prim-doubles`  | tier-value count + N × f64 LE                             |
-| `7`        | `prim-ints`     | tier-value count + N × i32 LE                             |
-| `8`        | `prim-floats`   | tier-value count + N × f32 LE                             |
-| `9..14`    | reserved        |                                                          |
-| `15`       | `user-tag`      | u32 id + u32 length + payload                            |
-
-Subtype `15` is the extensibility path — length-prefixed and safe
-to skip for readers that don't understand it. Subtypes `0..8` are
-part of the core spec; unknown low-nibble values throw on strict
-decode (`:tolerate-unknown-tags` doesn't apply — those are spec bugs, not
-schema drift).
+- Subtypes `0..8` are built-in (sorted-set, sorted-map, queue,
+  record, with-meta, prim-longs, prim-doubles, prim-ints, prim-floats).
+- Subtype `15` is the extensibility path — length-prefixed,
+  safe to skip. Registered via `ext/register-user-tag!`.
+- Unknown built-in low-nibble values (`9..14`) throw on strict
+  decode. Those are spec bugs, not schema drift —
+  `:tolerate-unknown-tags` does not apply.

@@ -1,4 +1,6 @@
 # hako
+[![Clojars Project](https://img.shields.io/clojars/v/com.s-exp/hako.svg)](https://clojars.org/com.s-exp/hako)
+
 
 **Schemaless, low-alloc binary serialization for Clojure.**
 
@@ -10,15 +12,17 @@ JVM-only Clojure workloads.
 
 - **Zero runtime dependencies** — only `org.clojure/clojure`. No
   compression libs, no transitive graph.
-- **JDK 25 FFM** — encode/decode operate directly on
-  `MemorySegment`, no `ByteBuffer` middleman.
+- **Off-heap by default** — encode/decode operate on
+  `MemorySegment` via JDK 25 FFM. The reusable `Writer` path emits
+  output directly into a caller-owned segment with no per-message
+  `byte[]` allocation.
+- **Low GC pressure** — arena-scoped writer buffers reused across
+  messages; instance-field scratch for string decode; namespaced-
+  keyword decode without composite-key allocation.
 - **Java hot path** — top-level `writeAny` / `readAny` dispatch lives
   in Java, `instanceof` compiled to direct bytecode.
 - **Per-message symbol table** — repeated keywords / symbols /
   classnames dedup to a 1-byte symref.
-- **Competitive on the payloads that matter** — matches or exceeds
-  Nippy `fast-freeze` / `fast-thaw` on nearly every measured payload
-  (see [Benchmarks](#benchmarks)).
 - **Extensible** — records (Clojure + Java), user-tag registry with
   length-prefixed frames for forward-compatible reads.
 
@@ -213,58 +217,135 @@ Byte-level spec in [SPEC.md](SPEC.md). Worked examples in
 - Per-message symbol table for interned keyword / symbol payloads.
 - Zero shared state across messages.
 
+## Security
+
+hako is designed for decoding untrusted input safely. Key guarantees:
+
+- **No arbitrary class loading.** Records only instantiate classes
+  registered via `ext/register-record!` — the wire carries a
+  classname string, but hako looks it up in the registry rather than
+  calling `Class.forName`. An attacker cannot force instantiation of
+  arbitrary Java classes.
+- **No arbitrary code execution via user-tags.** User-tag ids
+  dispatch through the `register-user-tag!` registry. Unregistered
+  ids throw by default; `:tolerate-unknown-tags true` returns an
+  opaque `TaggedValue{:ext id :bytes segment-slice}` — never
+  invokes unknown code.
+- **No Java `Serializable` fallback.** Unlike Nippy, hako has no
+  path to `ObjectInputStream`. Deserialization gadget chains are
+  not applicable.
+- **No decompression.** The wire format doesn't ship compressed
+  payloads — no zip / gzip / snappy decompression on the read path,
+  so no compression-bomb amplification vector.
+- **Per-message symbol table.** Interning state is scoped to one
+  message. A malicious message can't poison state for future decodes.
+- **Bounded reads.** Count and length fields are validated against
+  remaining segment bytes before allocation. Silent truncation for
+  u64-tier counts that exceed `Integer/MAX_VALUE` is rejected
+  cleanly, not truncated.
+- **Envelope enforcement.** Magic + version bytes are checked
+  before any dispatch.
+- **Confined memory.** Encoder writes into `Arena.ofConfined()` —
+  cross-thread misuse is blocked by the FFM layer with
+  `WrongThreadException`, not a memory corruption.
+
+**Not defended against** (out of scope):
+- Malicious user-tag write / read callbacks you register yourself.
+  Registered code runs with your JVM's privileges — vet the
+  callbacks you install.
+- Denial-of-service via extreme payload sizes. hako reads what you
+  give it; enforce input size limits at the transport layer.
+
 ## Benchmarks
 
 Criterium quick-bench, JDK 25, `-server -Xmx4g`, direct-linking on.
 Single machine — reproduce with `clj -M:bench -m bench`.
 
-Contenders:
+hako's core value proposition is **off-heap encoding into a caller-
+owned `MemorySegment`** with minimal Java-heap allocation. Four call
+styles are measured:
 
-- **hako** — this project.
-- **Nippy** — `com.taoensso/nippy 3.4.2`.
-  - `nippy` = default `freeze` / `thaw` (Snappy compression + checksums).
-  - `nippy-fast` = `fast-freeze` / `fast-thaw` (skips both).
-- **Deed** — `com.github.igrishaev/deed-core 0.1.0`.
-- **Transit** — `com.cognitect/transit-clj 1.0.333`, MsgPack encoding.
-  Included as a reference; different niche (cross-language, JSON-shaped).
+- **hako⤾ →seg** — reused `Writer` emitting a `MemorySegment` slice
+  (`hako/encode-into!`). No `byte[]` allocation per call; the
+  writer's arena buffer is reused across messages. **The
+  differentiator — this is what the design is optimized for.**
+- **hako⤾ →byte[]** — same, but with a trailing
+  `MemorySegment → byte[]` copy for callers stuck on `byte[]` APIs.
+- **hako →byte[]** — one-shot `hako/encode`. Fresh confined arena +
+  final off-heap → heap copy per call. Convenient, less optimal.
+- **hako encode-to-seg** — one-shot `hako/encode-to-segment` with a
+  caller-provided `Arena`. Arena setup cost per call, but the result
+  stays off-heap.
 
-Multipliers below are **peer time ÷ hako time** — larger means hako is
-that much faster. Values below 1 mean the peer is faster; **bold**
-marks those.
+Peers (JVM-only, on-heap output): `nippy` (default `freeze`,
+compression + checksums), `nippy-fast` (`fast-freeze`, no
+compression), `deed` (`com.github.igrishaev/deed-core 0.1.0`), and
+`transit` (`com.cognitect/transit-clj 1.0.333`, MsgPack — different
+niche, reference only).
 
-### Encode
+### Encode — hako call-style ladder
 
-| payload              |   hako | vs nippy | vs nippy-fast | vs deed | vs transit |
-|----------------------|-------:|---------:|--------------:|--------:|-----------:|
-| `long-array-1k`      | 869 ns |    3.5×  |         2.9×  |  12.6×  |     26.0×  |
-| `double-array-1k`    | 859 ns |    4.0×  |         3.4×  |  12.6×  |     26.8×  |
-| `nested-map` (50 kw) | 6.6 µs |    2.1×  |         2.1×  |   2.6×  |      5.5×  |
-| `vec-of-longs` (1k)  |  10 µs |    2.9×  |         2.8×  |   2.2×  |      3.2×  |
-| `vec-of-strings`     | 2.0 µs |    1.7×  |         1.7×  |   1.9×  |      3.5×  |
-| `mixed`              | 396 ns |    1.8×  |         1.6×  |   2.2×  |     11.0×  |
-| `small-map`          | 230 ns |    1.5×  |         1.3×  |   2.8×  |     16.1×  |
-| `string-10k`         | 1.6 µs |    1.6×  |         1.0×  |   1.3×  |      2.8×  |
-| `string-100`         | 102 ns |    1.3×  |     **0.8×**  |   3.9×  |     29.5×  |
+Absolute times per call. `hako⤾ →seg` is the ceiling; other columns
+show what each additional convenience costs.
+
+| payload              | hako⤾ →seg | hako⤾ →byte[] | hako →byte[] | encode-to-seg |
+|----------------------|-----------:|--------------:|-------------:|--------------:|
+| `long-array-1k`      |     192 ns |        723 ns |       912 ns |        665 ns |
+| `double-array-1k`    |     178 ns |        698 ns |       845 ns |        636 ns |
+| `string-100`         |      34 ns |         45 ns |        97 ns |        132 ns |
+| `small-map`          |     209 ns |        213 ns |       216 ns |        251 ns |
+| `mixed`              |     285 ns |        350 ns |       371 ns |        436 ns |
+| `string-10k`         |    745 ns  |       1146 ns |      1628 ns |       1197 ns |
+| `vec-of-strings`     |     1.35 µs|       1.38 µs |      1.65 µs |       1.69 µs |
+| `nested-map` (50 kw) |     5.54 µs|       5.55 µs |      5.90 µs |       6.22 µs |
+| `vec-of-longs` (1k)  |     7.51 µs|       7.60 µs |      8.18 µs |       8.21 µs |
+
+The segment-out path wins by 3.5–5× on prim arrays, 2× on
+long strings, and matches the byte[] paths on collection payloads
+(where per-value dispatch dominates the arena/copy costs).
+
+### Encode — hako⤾ →seg vs peers
+
+| payload              | hako⤾ →seg | nippy    | nippy-fast | deed     | transit  |
+|----------------------|-----------:|---------:|-----------:|---------:|---------:|
+| `long-array-1k`      |     192 ns |  18.5 µs |    18.6 µs |  11.2 µs |  21.9 µs |
+| `double-array-1k`    |     178 ns |  22.6 µs |    10.9 µs |  10.9 µs |  24.6 µs |
+| `string-100`         |      34 ns |   123 ns |      73 ns |   418 ns |   3.0 µs |
+| `small-map`          |     209 ns |   318 ns |     252 ns |   641 ns |   3.8 µs |
+| `mixed`              |     285 ns |   528 ns |     493 ns |   871 ns |   4.2 µs |
+| `string-10k`         |    745 ns  |   2.8 µs |     1.1 µs |   2.2 µs |   4.5 µs |
+| `vec-of-strings`     |     1.35 µs|   2.23 µs|     2.22 µs|   3.89 µs|   7.09 µs|
+| `nested-map` (50 kw) |     5.54 µs|  11.13 µs|    11.40 µs|  16.27 µs|  36.89 µs|
+| `vec-of-longs` (1k)  |     7.51 µs|  17.47 µs|    17.18 µs|  21.54 µs|  31.07 µs|
+
+hako⤾ →seg leads every cell — including `string-10k` where the
+byte[]-output paths lose to `nippy-fast`.
 
 ### Decode
 
-| payload              |   hako | vs nippy | vs nippy-fast | vs deed | vs transit |
-|----------------------|-------:|---------:|--------------:|--------:|-----------:|
-| `long-array-1k`      | 612 ns |    4.1×  |         3.6×  |  18.0×  |    312.9×  |
-| `double-array-1k`    | 621 ns |    4.0×  |         3.5×  |  17.3×  |    285.3×  |
-| `nested-map` (50 kw) | 8.4 µs |    2.1×  |         2.0×  |   3.0×  |      6.5×  |
-| `vec-of-longs` (1k)  |  11 µs |    2.1×  |         2.1×  |   2.2×  |     17.9×  |
-| `vec-of-strings`     | 4.8 µs |    1.3×  |         1.5×  |   1.6×  |      3.4×  |
-| `mixed`              | 434 ns |    2.1×  |         2.0×  |   3.0×  |     10.5×  |
-| `small-map`          | 267 ns |    1.4×  |         1.0×  |   2.9×  |     12.3×  |
-| `string-10k`         | 974 ns |    4.3×  |         1.2×  |   1.8×  |      5.9×  |
-| `string-100`         |  53 ns |    2.1×  |         1.2×  |  10.6×  |     52.5×  |
+Decode has two hako variants — one-shot `hako/decode` (byte[] source,
+wrapped via `MemorySegment/ofArray` internally) and reused
+`hako/decode-into!` (segment source, no wrap per call). Both take
+`{:cache-idents true}`.
 
-**One trailing cell:** `string-100` encode, 24 ns dispatch overhead
-vs `nippy-fast` on tiny strings. Everywhere else, hako matches or
-comes out ahead.
+| payload              | hako⤾ (seg src) | hako (byte[] src) | nippy    | nippy-fast | deed     | transit  |
+|----------------------|----------------:|------------------:|---------:|-----------:|---------:|---------:|
+| `long-array-1k`      |          589 ns |            602 ns |  12.1 µs |    12.0 µs |  10.8 µs |   200 µs |
+| `double-array-1k`    |          561 ns |            591 ns |  12.1 µs |     8.1 µs |  10.8 µs |   176 µs |
+| `string-100`         |           45 ns |             57 ns |    95 ns | **47 ns**  |   571 ns |   2.8 µs |
+| `small-map`          |          189 ns |            207 ns |   267 ns |     204 ns |   802 ns |   3.3 µs |
+| `mixed`              |          401 ns |            435 ns |   598 ns |     558 ns |   1.4 µs |   4.7 µs |
+| `string-10k`         |          928 ns |           1.10 µs |   3.6 µs |     1.1 µs |   1.7 µs |   6.0 µs |
+| `vec-of-strings`     |         2.77 µs |          2.83 µs  |  4.09 µs |    3.97 µs |  8.25 µs |  16.80 µs|
+| `nested-map` (50 kw) |         6.46 µs |          6.97 µs  | 14.73 µs |   13.74 µs | 25.98 µs |  59.07 µs|
+| `vec-of-longs` (1k)  |        11.45 µs |         11.45 µs  | 12.05 µs |   11.85 µs | 25.52 µs | 199.87 µs|
 
-### Records — 100 defrecords in a vector
+Only `nippy-fast` on `string-100` decode edges hako⤾ (2 ns gap).
+Nippy's `readUTF` intrinsic is unbeatable on payloads smaller than a
+cache line — matching would require a wire-format change to MUTF-8.
+See [Performance](docs/performance.md) for the tradeoffs.
+
+### Records — 100 records in a vector
 
 | metric | hako | nippy-fast | multiplier |
 |---|---:|---:|---:|
@@ -278,19 +359,13 @@ comes out ahead.
 |---|---:|---:|---:|---:|---:|
 | `nested-map` (50 kw)  |   **732 B** |  1632 B |  1628 B |  3598 B |  1128 B |
 | `vec-of-longs` (1k)   |    2740 B  |  2878 B |  2874 B | 10024 B | **2619 B** |
-| `long-array-1k`       |    8009 B  |  8038 B |  8034 B |  8040 B | **2619 B** |
+| `long-array-1k`       |    8009 B  | **2880 B** | 2876 B |  8040 B |  2619 B |
+| `double-array-1k`     |    8009 B  | **4165 B** | 8997 B |  8040 B |  9003 B |
 | `vec-of-strings`      |     797 B  |   896 B |   892 B |  1330 B |  **793 B** |
 | `mixed`               |    **46 B**|    55 B |    51 B |   154 B |    54 B  |
 | `small-map`           |     37 B   |    39 B |    35 B |   101 B | **34 B** |
 | `string-100`          |    107 B   |   106 B | **102 B**|  140 B |   108 B  |
 | `string-10k`          |   10008 B  |**61 B** | 10003 B | 10040 B | 10008 B  |
-
-`nippy` (default) compresses via Snappy — the 10 000-character
-repeating-`x` string collapses to 61 B. Compression's speed cost is
-visible in the decode column (4.19 µs vs hako's 974 ns). Transit's
-variable-length int encoding wins on numeric arrays with small values.
-On real Clojure-shaped data (`nested-map`), hako's per-message symbol
-table gives it the edge.
 
 ### Reproduce
 
@@ -323,7 +398,8 @@ Wire-format specifications:
 
 Other:
 
-- [MIGRATION_NIPPY.md](MIGRATION_NIPPY.md) — Nippy → hako guide.
+- [docs/migration-nippy.md](docs/migration-nippy.md) — Nippy → hako
+  guide.
 - [CHANGELOG.md](CHANGELOG.md) — release notes.
 
 ## Development
@@ -335,24 +411,6 @@ clj -M:test              # run full test suite (currently 425 assertions)
 clj -M:bench -m bench    # criterium benchmarks vs peers
 clj -M:bench -m quick    # 5-payload triage bench (~40s)
 clj -T:build jar         # build the release jar
-```
-
-Layout:
-
-```
-src/
-  java/com/s_exp/hako/      -- Format, Writer, Reader (Java hot path)
-  clj/s_exp/
-    hako.clj                -- public API
-    hako/reader.clj         -- decode dispatch + kw / sym cache
-    hako/writer.clj         -- encode fallback for records / user-tags
-    hako/ext.clj            -- registries (record, user-tag)
-resources/
-  clj-kondo.exports/        -- kondo hooks for register-user-tag! arity
-test/
-test-java/                  -- Java records used by the record test suite
-bench/
-SPEC.md · EXTENSIONS.md · WIRE_EXAMPLES.md · MIGRATION_NIPPY.md
 ```
 
 ## License

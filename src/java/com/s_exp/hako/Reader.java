@@ -195,8 +195,19 @@ public final class Reader {
         return s;
     }
 
+    private byte[] stringDecodeBuf = new byte[128];
+
     public String getString(int n) {
-        return new String(getBytes(n), StandardCharsets.UTF_8);
+        if (n == 0) return "";
+        need(n);
+        byte[] buf = stringDecodeBuf;
+        if (buf.length < n) {
+            buf = new byte[Math.max(n, buf.length * 2)];
+            stringDecodeBuf = buf;
+        }
+        MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, pos, buf, 0, n);
+        pos += n;
+        return new String(buf, 0, n, StandardCharsets.UTF_8);
     }
 
     public long[] readLongArray(int n) {
@@ -286,8 +297,13 @@ public final class Reader {
 
     // -- Ident payload parsing ---------------------------------------------
 
-    /** Returns a 2-element array {ns, name}. Either may be null (empty ns). */
-    private String[] readIdentPayload(int tierCode) {
+    // Scratch fields for readIdentPayload → readKeyword/readSymbol.
+    // Avoids allocating a String[] holder on every ident decode.
+    private String identNs;
+    private String identName;
+
+    /** Populates {@link #identNs} and {@link #identName}. */
+    private void readIdentPayload(int tierCode) {
         long totalLen = checkCount(readTierPayload(tierCode), "identifier length");
         int nsLen = getByte();
         // Spec (SPEC.md §3.4): ns-length + 1 + name-length == size-tier length.
@@ -298,46 +314,49 @@ public final class Reader {
                 + " exceeds declared payload length " + totalLen);
         }
         int nameLen = (int) totalLen - 1 - nsLen;
-        String ns = nsLen > 0 ? getString(nsLen) : null;
-        String name = getString(nameLen);
-        return new String[] { ns, name };
+        identNs = nsLen > 0 ? getString(nsLen) : null;
+        identName = getString(nameLen);
     }
 
     private Keyword readKeyword(int tierCode) {
-        String[] parts = readIdentPayload(tierCode);
+        readIdentPayload(tierCode);
+        String ns = identNs, name = identName;
         Keyword kw;
-        if (cacheIdents) {
-            String key = parts[0] != null ? parts[0] + "/" + parts[1] : parts[1];
-            Keyword hit = KW_CACHE.get(key);
+        // Cache lookup only for non-namespaced idents — those are the
+        // hot case in typical Clojure payloads (map keys). Namespaced
+        // idents fall through to Keyword.intern, which has its own
+        // canonicalizing cache and doesn't need our String key concat.
+        if (cacheIdents && ns == null) {
+            Keyword hit = KW_CACHE.get(name);
             if (hit != null) {
                 kw = hit;
             } else {
-                kw = Keyword.intern(parts[0], parts[1]);
-                Keyword prev = KW_CACHE.putIfAbsent(key, kw);
+                kw = Keyword.intern(null, name);
+                Keyword prev = KW_CACHE.putIfAbsent(name, kw);
                 if (prev != null) kw = prev;
             }
         } else {
-            kw = Keyword.intern(parts[0], parts[1]);
+            kw = Keyword.intern(ns, name);
         }
         symTable.add(kw);
         return kw;
     }
 
     private Symbol readSymbol(int tierCode) {
-        String[] parts = readIdentPayload(tierCode);
+        readIdentPayload(tierCode);
+        String ns = identNs, name = identName;
         Symbol sym;
-        if (cacheIdents) {
-            String key = parts[0] != null ? parts[0] + "/" + parts[1] : parts[1];
-            Symbol hit = SYM_CACHE.get(key);
+        if (cacheIdents && ns == null) {
+            Symbol hit = SYM_CACHE.get(name);
             if (hit != null) {
                 sym = hit;
             } else {
-                sym = Symbol.intern(parts[0], parts[1]);
-                Symbol prev = SYM_CACHE.putIfAbsent(key, sym);
+                sym = Symbol.intern(null, name);
+                Symbol prev = SYM_CACHE.putIfAbsent(name, sym);
                 if (prev != null) sym = prev;
             }
         } else {
-            sym = Symbol.intern(parts[0], parts[1]);
+            sym = Symbol.intern(ns, name);
         }
         symTable.add(sym);
         return sym;

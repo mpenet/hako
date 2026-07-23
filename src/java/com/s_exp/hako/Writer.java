@@ -114,12 +114,15 @@ public final class Writer implements AutoCloseable {
     private static final long MAX_CAP = 1L << 62;
 
     private void ensure(long n) {
+        if (n > cap - pos || n < 0) grow(n);
+    }
+
+    private void grow(long n) {
         if (n < 0 || n > MAX_CAP - pos) {
             throw new IllegalStateException(
                 "hako: write exceeds max buffer capacity (" + MAX_CAP + " bytes)");
         }
         long need = pos + n;
-        if (need <= cap) return;
         long newCap = cap;
         while (newCap < need) newCap <<= 1;
         MemorySegment newSeg = arena.allocate(newCap, 1);

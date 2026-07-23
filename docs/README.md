@@ -28,6 +28,5 @@ Deep-dive guides for hako users.
   registry.
 - [`../WIRE_EXAMPLES.md`](../WIRE_EXAMPLES.md) — annotated
   byte-by-byte encoding examples.
-- [`../MIGRATION_NIPPY.md`](../MIGRATION_NIPPY.md) — migrating from
-  Nippy.
+- [`migration-nippy.md`](migration-nippy.md) — migrating from Nippy.
 - [`../CHANGELOG.md`](../CHANGELOG.md) — release notes.
