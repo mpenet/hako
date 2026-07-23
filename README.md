@@ -16,9 +16,9 @@ JVM-only Clojure workloads.
   in Java, `instanceof` compiled to direct bytecode.
 - **Per-message symbol table** — repeated keywords / symbols /
   classnames dedup to a 1-byte symref.
-- **Fast on the payloads that matter** — beats Nippy `fast-freeze` /
-  `fast-thaw` on nearly every measured payload (see
-  [Benchmarks](#benchmarks)).
+- **Competitive on the payloads that matter** — matches or exceeds
+  Nippy `fast-freeze` / `fast-thaw` on nearly every measured payload
+  (see [Benchmarks](#benchmarks)).
 - **Extensible** — records (Clojure + Java), user-tag registry with
   length-prefixed frames for forward-compatible reads.
 
@@ -255,8 +255,9 @@ marks those.
 | `string-10k`         | 974 ns |    4.3×  |         1.2×  |   1.8×  |      5.9×  |
 | `string-100`         |  53 ns |    2.1×  |         1.2×  |  10.6×  |     52.5×  |
 
-**One loss only:** `string-100` encode, 24 ns dispatch overhead vs
-`nippy-fast` on tiny strings. Everywhere else, hako matches or beats.
+**One trailing cell:** `string-100` encode, 24 ns dispatch overhead
+vs `nippy-fast` on tiny strings. Everywhere else, hako matches or
+comes out ahead.
 
 ### Records — 100 defrecords in a vector
 
@@ -284,7 +285,7 @@ repeating-`x` string collapses to 61 B. Compression's speed cost is
 visible in the decode column (4.19 µs vs hako's 974 ns). Transit's
 variable-length int encoding wins on numeric arrays with small values.
 On real Clojure-shaped data (`nested-map`), hako's per-message symbol
-table beats both.
+table gives it the edge.
 
 ### Reproduce
 
