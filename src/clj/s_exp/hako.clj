@@ -145,26 +145,71 @@
          arr)
        (finally (.close wr))))))
 
-(defn decode-many
-  "Decode a `src` produced by `encode-many` and return a vector of the
-  values. Reads until end-of-stream."
-  ([src] (decode-many src nil))
+(defn- ^MemorySegment ->segment [src]
+  (cond
+    (instance? MemorySegment src) src
+    (bytes? src) (MemorySegment/ofArray ^bytes src)
+    :else (throw (ex-info "hako: unsupported source"
+                          {:type (class src)}))))
+
+(defn- fresh-reader ^Reader [^MemorySegment seg opts]
+  (let [rd (Reader. seg)]
+    (r/configure! rd)
+    (.setZeroCopy rd (boolean (:zero-copy opts)))
+    (.setTolerant rd (boolean (:tolerate-unknown-tags opts)))
+    (.setCacheIdents rd (boolean (:cache-idents opts)))
+    (.readEnvelope rd)
+    rd))
+
+(defn decoder
+  "Return a reducible + iterable source over all values in `src`
+  (a byte[] or MemorySegment). Terminates cleanly on both stream
+  outputs from `encode-many` and single-value outputs from `encode`.
+
+  Compose with standard Clojure fns:
+
+    (into #{} (filter :active) (hako/decoder bs))
+    (sequence xform (hako/decoder bs))
+    (eduction  xform (hako/decoder bs))
+    (reduce f init (hako/decoder bs))
+    (transduce xform f init (hako/decoder bs))
+    (run! process! (hako/decoder bs))
+
+  Each reduction / iteration spins up a fresh Reader — the source is
+  safe to walk multiple times, and early termination via `reduced` or
+  a short `.hasNext` stops the reader immediately without over-reading.
+
+  Distinct from `reader`: `reader` returns a mutable Reader instance
+  (for `decode-into!`); `decoder` returns a lazy value-stream source.
+
+  Options — same as `decode`: `:zero-copy`, `:tolerate-unknown-tags`,
+  `:cache-idents`."
+  ([src] (decoder src nil))
   ([src opts]
-   (let [seg (cond
-               (instance? MemorySegment src) src
-               (bytes? src) (MemorySegment/ofArray ^bytes src)
-               :else (throw (ex-info "hako: unsupported source"
-                                     {:type (class src)})))
-         rd (Reader. seg)]
-     (r/configure! rd)
-     (.setZeroCopy rd (boolean (:zero-copy opts)))
-     (.setTolerant rd (boolean (:tolerate-unknown-tags opts)))
-     (.setCacheIdents rd (boolean (:cache-idents opts)))
-     (.readEnvelope rd)
-     (loop [acc (transient [])]
-       (if (zero? (.remaining rd))
-         (persistent! acc)
-         (recur (conj! acc (.readAny rd))))))))
+   (let [seg (->segment src)]
+     (reify
+       clojure.lang.IReduceInit
+       (reduce [_ f init]
+         (let [rd (fresh-reader seg opts)]
+           (loop [acc init]
+             (if (zero? (.remaining rd))
+               acc
+               (let [acc' (f acc (.readAny rd))]
+                 (if (reduced? acc')
+                   @acc'
+                   (recur acc')))))))
+       Iterable
+       (iterator [_]
+         (let [rd (fresh-reader seg opts)]
+           (reify java.util.Iterator
+             (hasNext [_] (pos? (.remaining rd)))
+             (next [_] (.readAny rd))
+             (remove [_] (throw (UnsupportedOperationException.))))))))))
+
+(defn decode-many
+  "Convenience wrapper. Equivalent to `(into [] (decoder src opts))`."
+  ([src] (decode-many src nil))
+  ([src opts] (into [] (decoder src opts))))
 
 (defn decode
   "Decode a hako-format value from `src` — a byte[] or a MemorySegment.

@@ -86,8 +86,30 @@ carry through to each value.
 (decode-many src opts)                   ; -> vector of values
 ```
 
-Inverse of `encode-many`. Reads values until end-of-input. Options
-same as `decode`.
+Convenience: equivalent to `(into [] (decoder src opts))`.
+
+### `decoder`
+
+```clj
+(decoder src)                            ; -> reducible + iterable
+(decoder src opts)                       ; -> reducible + iterable
+```
+
+Returns a value-stream source that implements both
+`clojure.lang.IReduceInit` and `Iterable`. Composes with any
+standard `clojure.core` fn that consumes reducibles or iterables:
+
+```clj
+(into #{} (filter :active) (hako/decoder bs))
+(sequence (map :id) (hako/decoder bs))
+(eduction  xform (hako/decoder bs))
+(reduce f init (hako/decoder bs))
+(transduce xform f init (hako/decoder bs))
+```
+
+Each reduction / iteration spins up a fresh Reader; the source is
+safe to walk multiple times. `reduced` terminates the reader
+immediately. Options same as `decode`.
 
 ### `reader` / `decode-into!`
 

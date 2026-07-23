@@ -26,7 +26,7 @@ segments**. There are four ways to write more than one value:
    (delimited streams, custom framing) — call the Java Writer
    directly.
 
-## `encode-many` / `decode-many`
+## `encode-many` / `decoder` / `decode-many`
 
 Best for medium-sized batches where the symbol-table dedup pays for
 itself:
@@ -58,14 +58,37 @@ Wire layout:
 `decode-many` reads values until it hits end-of-input, returning a
 vector.
 
+### Transducer-friendly read: `hako/decoder`
+
+For most streams you don't want to materialize a vector. Use
+`(hako/decoder bs)` to get a **reducible + iterable** source over the
+values. Composes with any `clojure.core` fn that consumes reducibles
+or iterables:
+
+```clj
+(into #{} (filter :active) (hako/decoder bs))
+(into [] (comp (map :id) (take 100)) (hako/decoder bs))
+(sequence xform (hako/decoder bs))
+(eduction  xform (hako/decoder bs))
+(reduce f init (hako/decoder bs))
+(transduce xform f init (hako/decoder bs))
+(run! process! (hako/decoder bs))
+```
+
+Each reduction / iteration spins up a fresh Reader; the source is
+safe to walk multiple times. Early termination via `reduced` or a
+short `.hasNext` stops the reader immediately without over-reading.
+
+`decode-many` is now just `(into [] (decoder bs))`.
+
 **Options:**
 
 `encode-many` accepts the same options as `encode`:
 `:initial-size`, `:preserve-meta`, `:pack-homogeneous`,
 `:coerce-custom-comparator`.
 
-`decode-many` accepts the same as `decode`: `:zero-copy`,
-`:tolerate-unknown-tags`, `:cache-idents`.
+`decode-many` / `decoder` accept the same as `decode`:
+`:zero-copy`, `:tolerate-unknown-tags`, `:cache-idents`.
 
 **When to use:**
 

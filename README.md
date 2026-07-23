@@ -77,6 +77,11 @@ worked examples in [WIRE_EXAMPLES.md](WIRE_EXAMPLES.md).
 ;; Batch API — multiple values share one symbol table:
 (hako/encode-many [{:a 1} {:a 2} {:a 3}])
 ;; keyword :a is encoded once, symref'd twice.
+
+;; Transducer-friendly decode over a batch stream:
+(into #{} (filter :active) (hako/decoder bs))
+(sequence (map :id) (hako/decoder bs))
+(reduce + 0 (hako/decoder bs))
 ```
 
 **Encode options**
