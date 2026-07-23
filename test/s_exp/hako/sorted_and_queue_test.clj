@@ -1,7 +1,29 @@
-(ns s-exp.hako.m7-test
-  "Custom comparator coercion opt-in."
+(ns s-exp.hako.sorted-and-queue-test
+  "Sorted collections, queue, custom-comparator strict + coerce."
   (:require [clojure.test :refer [deftest is testing]]
             [s-exp.hako :as hako]))
+
+(defn- rt [v] (hako/decode (hako/encode v)))
+
+(deftest sorted-colls
+  (testing "sorted-set default cmp"
+    (let [s (sorted-set 3 1 2 4)
+          r (rt s)]
+      (is (= s r))
+      (is (instance? clojure.lang.PersistentTreeSet r))
+      (is (= [1 2 3 4] (vec r)))))
+  (testing "sorted-map default cmp"
+    (let [m (sorted-map :b 2 :a 1 :c 3)
+          r (rt m)]
+      (is (= m r))
+      (is (instance? clojure.lang.PersistentTreeMap r))
+      (is (= [[:a 1] [:b 2] [:c 3]] (vec r))))))
+
+(deftest queue
+  (let [q (into clojure.lang.PersistentQueue/EMPTY [1 2 3 4])
+        r (rt q)]
+    (is (instance? clojure.lang.PersistentQueue r))
+    (is (= (seq q) (seq r)))))
 
 (deftest custom-comparator-strict-default
   (testing "sorted-set-by throws by default"
@@ -17,7 +39,7 @@
           enc (hako/encode s {:coerce-custom-comparator true})
           r (hako/decode enc)]
       (is (instance? clojure.lang.PersistentTreeSet r))
-      (is (= [1 2 3] (vec r)))                 ; natural order, comparator lost
+      (is (= [1 2 3] (vec r)))
       (is (= #{1 2 3} (set r)))))
   (testing "sorted-map-by coerced"
     (let [m (sorted-map-by #(compare %2 %1) :b 2 :a 1 :c 3)

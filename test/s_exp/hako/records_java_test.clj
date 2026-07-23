@@ -1,4 +1,5 @@
-(ns s-exp.hako.java-record-test
+(ns s-exp.hako.records-java-test
+  "Java-record (JEP 395) encode / decode via ext/register-record!."
   (:require [clojure.test :refer [deftest is testing]]
             [s-exp.hako :as hako]
             [s-exp.hako.ext :as ext])

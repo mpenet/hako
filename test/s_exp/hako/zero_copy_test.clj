@@ -1,4 +1,5 @@
-(ns s-exp.hako.m3-test
+(ns s-exp.hako.zero-copy-test
+  ":zero-copy decode returns MemorySegment slices for byte payloads."
   (:require [clojure.test :refer [deftest is testing]]
             [s-exp.hako :as hako])
   (:import (java.lang.foreign MemorySegment ValueLayout)))

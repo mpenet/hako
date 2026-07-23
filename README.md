@@ -1,6 +1,9 @@
 # hako
 [![Clojars Project](https://img.shields.io/clojars/v/com.s-exp/hako.svg)](https://clojars.org/com.s-exp/hako)
 
+[![Clojars Project](https://img.shields.io/clojars/v/com.s-exp/hako.svg)](https://clojars.org/com.s-exp/hako)
+
+
 **Schemaless, low-alloc binary serialization for Clojure.**
 
 Built on JDK 25 FFM (`MemorySegment`).
@@ -376,24 +379,6 @@ clj -M:test              # run full test suite (currently 425 assertions)
 clj -M:bench -m bench    # criterium benchmarks vs peers
 clj -M:bench -m quick    # 5-payload triage bench (~40s)
 clj -T:build jar         # build the release jar
-```
-
-Layout:
-
-```
-src/
-  java/com/s_exp/hako/      -- Format, Writer, Reader (Java hot path)
-  clj/s_exp/
-    hako.clj                -- public API
-    hako/reader.clj         -- decode dispatch + kw / sym cache
-    hako/writer.clj         -- encode fallback for records / user-tags
-    hako/ext.clj            -- registries (record, user-tag)
-resources/
-  clj-kondo.exports/        -- kondo hooks for register-user-tag! arity
-test/
-test-java/                  -- Java records used by the record test suite
-bench/
-SPEC.md · EXTENSIONS.md · WIRE_EXAMPLES.md · MIGRATION_NIPPY.md
 ```
 
 ## License
