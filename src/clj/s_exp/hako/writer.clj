@@ -60,7 +60,7 @@
     ((:write-fn info) w x)
     (.endUserTag w mark)))
 
-(def ^Writer$UnknownHandler HANDLER
+(def ^Writer$UnknownHandler handler
   (reify Writer$UnknownHandler
     (write [_ w v]
       (let [w ^Writer w
@@ -79,7 +79,7 @@
   "Attach the Clojure fallback handler to `w`. Called once at Writer
   creation — the handler is retained across `.reset`."
   [^Writer w]
-  (.setUnknownHandler w HANDLER))
+  (.setUnknownHandler w handler))
 
 (defn write-value!
   "Backwards-compatible facade around `.writeAny`."

@@ -20,10 +20,10 @@
         (>= n 128) n
         :else (recur (inc n) m')))))
 
-(def ^:private ARRAY-MAP-THRESHOLD
+(def ^:private array-map-threshold
   (long (probe-array-map-threshold #(str "k" %))))
 
-(def ^:private ARRAY-MAP-KW-THRESHOLD
+(def ^:private array-map-kw-threshold
   (long (probe-array-map-threshold #(keyword (str "k" %)))))
 
 ;; -- User-tag handler --------------------------------------------------------
@@ -51,7 +51,7 @@
       (throw (ex-info "hako: unknown user-tag"
                       {:type ::unknown-user-tag :id id})))))
 
-(def ^Reader$ExtensionHandler HANDLER
+(def ^Reader$ExtensionHandler handler
   (reify Reader$ExtensionHandler
     (readUserTag [_ r] (read-user-tag! ^Reader r))))
 
@@ -60,8 +60,8 @@
   thresholds probed from the running Clojure runtime and install the
   user-tag callback. Called once at Reader creation."
   [^Reader r]
-  (.setArrayMapThresholds r (int ARRAY-MAP-THRESHOLD) (int ARRAY-MAP-KW-THRESHOLD))
-  (.setExtensionHandler r HANDLER))
+  (.setArrayMapThresholds r (int array-map-threshold) (int array-map-kw-threshold))
+  (.setExtensionHandler r handler))
 
 (defn read-value!
   "Backwards-compatible facade around `.readAny`."

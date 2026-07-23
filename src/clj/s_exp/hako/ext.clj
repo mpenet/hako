@@ -15,14 +15,14 @@
 
 ;; -- Default comparator detection -------------------------------------------
 
-(def ^:private ^java.util.Comparator DEFAULT-CMP
+(def ^:private ^java.util.Comparator default-cmp
   (.comparator ^PersistentTreeSet (sorted-set)))
 
 (defn default-comparator?
   "True when `sorted-coll` uses the natural-ordering comparator that
   `sorted-set` / `sorted-map` install by default."
   [sorted-coll]
-  (identical? DEFAULT-CMP
+  (identical? default-cmp
               (cond
                 (instance? PersistentTreeSet sorted-coll)
                 (.comparator ^PersistentTreeSet sorted-coll)
