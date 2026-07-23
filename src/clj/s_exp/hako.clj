@@ -14,10 +14,10 @@
 
   Options:
     :initial-size                — starting buffer size in bytes (default 256).
-    :meta?                       — preserve metadata on collections / IObjs (default false).
-    :pack-homogeneous?           — detect all-Long / all-Double vectors and emit
+    :preserve-meta                       — preserve metadata on collections / IObjs (default false).
+    :pack-homogeneous           — detect all-Long / all-Double vectors and emit
                                    them as packed prim arrays (default false).
-    :coerce-custom-comparator?   — allow encoding sorted-set-by / sorted-map-by
+    :coerce-custom-comparator   — allow encoding sorted-set-by / sorted-map-by
                                    as default-cmp sorted collections. Comparator
                                    is lost on decode. Warns once per JVM."
   (^bytes [value] (encode value nil))
@@ -25,9 +25,9 @@
    (let [initial (long (or (:initial-size opts) 256))
          wr (Writer. initial)]
      (try
-       (.setWriteMeta wr (boolean (:meta? opts)))
-       (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
-       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
+       (.setWriteMeta wr (boolean (:preserve-meta opts)))
+       (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
+       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator opts)))
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (.writeAny wr value)
@@ -46,9 +46,9 @@
    (let [initial (long (or (:initial-size opts) 256))
          wr (Writer. initial)]
      (try
-       (.setWriteMeta wr (boolean (:meta? opts)))
-       (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
-       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
+       (.setWriteMeta wr (boolean (:preserve-meta opts)))
+       (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
+       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator opts)))
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (.writeAny wr value)
@@ -79,9 +79,9 @@
   (^MemorySegment [^Writer wr value] (encode-into! wr value nil))
   (^MemorySegment [^Writer wr value opts]
    (.reset wr)
-   (.setWriteMeta wr (boolean (:meta? opts)))
-   (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
-   (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
+   (.setWriteMeta wr (boolean (:preserve-meta opts)))
+   (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
+   (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator opts)))
    (.writeEnvelope wr)
    (.writeAny wr value)
    (.finish wr)))
@@ -114,9 +114,9 @@
                :else (throw (ex-info "hako: unsupported source"
                                      {:type (class src)})))]
      (.reset rd seg)
-     (.setZeroCopy rd (boolean (:zero-copy? opts)))
-     (.setTolerant rd (boolean (:tolerant? opts)))
-     (.setCacheIdents rd (boolean (:cache-idents? opts)))
+     (.setZeroCopy rd (boolean (:zero-copy opts)))
+     (.setTolerant rd (boolean (:tolerate-unknown-tags opts)))
+     (.setCacheIdents rd (boolean (:cache-idents opts)))
      (.readEnvelope rd)
      (.readAny rd))))
 
@@ -132,9 +132,9 @@
    (let [initial (long (or (:initial-size opts) 4096))
          wr (Writer. initial)]
      (try
-       (.setWriteMeta wr (boolean (:meta? opts)))
-       (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
-       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
+       (.setWriteMeta wr (boolean (:preserve-meta opts)))
+       (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
+       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator opts)))
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (doseq [v values] (.writeAny wr v))
@@ -157,9 +157,9 @@
                                      {:type (class src)})))
          rd (Reader. seg)]
      (r/configure! rd)
-     (.setZeroCopy rd (boolean (:zero-copy? opts)))
-     (.setTolerant rd (boolean (:tolerant? opts)))
-     (.setCacheIdents rd (boolean (:cache-idents? opts)))
+     (.setZeroCopy rd (boolean (:zero-copy opts)))
+     (.setTolerant rd (boolean (:tolerate-unknown-tags opts)))
+     (.setCacheIdents rd (boolean (:cache-idents opts)))
      (.readEnvelope rd)
      (loop [acc (transient [])]
        (if (zero? (.remaining rd))
@@ -170,12 +170,12 @@
   "Decode a hako-format value from `src` — a byte[] or a MemorySegment.
 
   Options:
-    :zero-copy? — return MemorySegment slices for byte payloads instead of
+    :zero-copy — return MemorySegment slices for byte payloads instead of
                   copying to byte[] (default false). Slices are valid only
                   while the source segment / arena remain alive.
-    :tolerant?  — unknown user-tag ids resolve to TaggedValue rather than
+    :tolerate-unknown-tags  — unknown user-tag ids resolve to TaggedValue rather than
                   throwing (default false).
-    :cache-idents? — consult a JVM-global cache when interning decoded
+    :cache-idents — consult a JVM-global cache when interning decoded
                   keywords / symbols. Wins on keyword-heavy payloads
                   (~2x on 50+ unique kw), slight overhead on tiny maps
                   (default false)."
@@ -188,8 +188,8 @@
                                      {:type (class src)})))
          rd (Reader. seg)]
      (r/configure! rd)
-     (.setZeroCopy rd (boolean (:zero-copy? opts)))
-     (.setTolerant rd (boolean (:tolerant? opts)))
-     (.setCacheIdents rd (boolean (:cache-idents? opts)))
+     (.setZeroCopy rd (boolean (:zero-copy opts)))
+     (.setTolerant rd (boolean (:tolerate-unknown-tags opts)))
+     (.setCacheIdents rd (boolean (:cache-idents opts)))
      (.readEnvelope rd)
      (.readAny rd))))

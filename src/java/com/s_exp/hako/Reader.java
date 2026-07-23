@@ -35,7 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * survive resets.
  *
  * <p>Static caches ({@code KW_CACHE}, {@code SYM_CACHE}) used when
- * {@code :cache-idents? true} is set are {@link
+ * {@code :cache-idents true} is set are {@link
  * java.util.concurrent.ConcurrentHashMap} and safe for concurrent
  * decode from multiple Reader instances.
  */

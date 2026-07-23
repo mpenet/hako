@@ -34,7 +34,7 @@ Notes:
 - **prim-longs / prim-doubles / prim-ints / prim-floats**: homogeneous
   numeric collections encoded packed. Writer detects `long[]` /
   `double[]` / `int[]` / `float[]` inputs directly. With
-  `:pack-homogeneous? true`, also detects homogeneous vectors of Long /
+  `:pack-homogeneous true`, also detects homogeneous vectors of Long /
   Double (packed as prim-longs / prim-doubles — Integer / Float vectors
   are NOT auto-detected to avoid ambiguity with widening). Reader
   returns the corresponding typed array.
@@ -69,10 +69,10 @@ Registration for the public range happens by PR against this document.
 
 Reader options:
 
-- `:tolerant? true` — an unregistered user-tag id is not fatal. The
+- `:tolerate-unknown-tags true` — an unregistered user-tag id is not fatal. The
   decoder skips over the length-prefixed payload and yields a
   `s-exp.hako.ext/TaggedValue{:ext id :bytes payload}` where `payload`
   is a `MemorySegment` slice of the raw bytes. Unknown built-in ext
   subtypes (0..6) still throw — those are spec bugs, not schema drift.
-- `:tolerant? false` (default) — an unregistered user-tag id throws
+- `:tolerate-unknown-tags false` (default) — an unregistered user-tag id throws
   `ex-info` with `{:type ::unknown-user-tag :id id}`.

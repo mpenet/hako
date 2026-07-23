@@ -91,14 +91,14 @@
           r (rt v)]
       (is (= [1 2 3] r))
       (is (nil? (meta r)))))
-  (testing "metadata preserved with :meta? true"
+  (testing "metadata preserved with :preserve-meta true"
     (let [v (with-meta [1 2 3] {:tag :vec :extra 42})
-          r (rt v {:meta? true})]
+          r (rt v {:preserve-meta true})]
       (is (= [1 2 3] r))
       (is (= {:tag :vec :extra 42} (meta r)))))
   (testing "no metadata → no wrap, no change"
     (let [v [1 2 3]
-          r (rt v {:meta? true})]
+          r (rt v {:preserve-meta true})]
       (is (= [1 2 3] r)))))
 
 ;; -- Mixed --------------------------------------------------------------------

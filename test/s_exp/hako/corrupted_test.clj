@@ -82,7 +82,7 @@
                             (hako/decode bs))))))
 
 (deftest unknown-user-tag-tolerant
-  (testing "unregistered user-tag with :tolerant? true returns TaggedValue"
+  (testing "unregistered user-tag with :tolerate-unknown-tags true returns TaggedValue"
     (let [id-bs (byte-array [0x00 0x01 0x02 0x03])
           payload-bs (byte-array [0xAA 0xBB])
           bs (concat-bytes (envelope)
@@ -91,5 +91,5 @@
                            (byte-array [0x0E])
                            (byte-array [0x02 0x00 0x00 0x00])  ; u32 length = 2
                            payload-bs)
-          r (hako/decode bs {:tolerant? true})]
+          r (hako/decode bs {:tolerate-unknown-tags true})]
       (is (some? r)))))

@@ -31,14 +31,14 @@ Initial pre-release.
   `PersistentHashSet`, `PersistentHashMap`, `PersistentArrayMap`,
   `PersistentTreeSet`, `PersistentTreeMap`, `PersistentQueue`,
   Clojure defrecords, Java records (JEP 395).
-- Encode options: `:initial-size`, `:meta?`, `:pack-homogeneous?`,
-  `:coerce-custom-comparator?`.
-- Decode options: `:zero-copy?`, `:tolerant?`, `:cache-idents?`.
+- Encode options: `:initial-size`, `:preserve-meta`, `:pack-homogeneous`,
+  `:coerce-custom-comparator`.
+- Decode options: `:zero-copy`, `:tolerate-unknown-tags`, `:cache-idents`.
 - Per-message symbol table with symref dedup for keywords, symbols,
   and record classnames — Object-keyed (`HashMap<Object, Long>`) for
   alloc-free lookups.
 - Length-prefixed user-tag frames (`0xEF`) for forward-compat and
-  `:tolerant?` skipping.
+  `:tolerate-unknown-tags` skipping.
 - Adaptive `PersistentArrayMap` decode fast path — probes the running
   Clojure runtime's threshold at ns-load and picks PAM or PHM.
 - `encode-many` / `decode-many` for batch payloads sharing one

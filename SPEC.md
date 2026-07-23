@@ -183,7 +183,7 @@ Symbol payload uses the identical shape.
 
 Reserved namespace for user- and library-defined tags. See `EXTENSIONS.md`.
 
-Reader behavior for unknown extension tag: throw by default; opt-in `{:tolerant? true}` returns an opaque `TaggedValue{id, payload-bytes}`.
+Reader behavior for unknown extension tag: throw by default; opt-in `{:tolerate-unknown-tags true}` returns an opaque `TaggedValue{id, payload-bytes}`.
 
 ## 5. Concrete-type roundtrip guarantees
 
@@ -193,7 +193,7 @@ Clojure type is **not** preserved in these cases:
 - All maps decode to `PersistentHashMap` (regardless of source being array-map / hash-map).
 - All sets decode to `PersistentHashSet` (unless sorted-set extension emitted).
 - Lists / seqs / cons chains decode to `PersistentList`.
-- Metadata is dropped unless the writer was configured with `{:meta? true}`.
+- Metadata is dropped unless the writer was configured with `{:preserve-meta true}`.
 
 Preserved via extension tag (see `EXTENSIONS.md`):
 

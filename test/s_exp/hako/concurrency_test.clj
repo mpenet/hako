@@ -1,5 +1,5 @@
 (ns s-exp.hako.concurrency-test
-  "Verify the JVM-global keyword / symbol caches used by :cache-idents?
+  "Verify the JVM-global keyword / symbol caches used by :cache-idents
   are safe under concurrent decode from many threads."
   (:require [clojure.test :refer [deftest is testing]]
             [s-exp.hako :as hako]))
@@ -13,11 +13,11 @@
                             #(future
                                (into []
                                      (repeatedly iters
-                                                 (fn [] (hako/decode bs {:cache-idents? true}))))))]
+                                                 (fn [] (hako/decode bs {:cache-idents true}))))))]
     (mapv deref futures)))
 
 (deftest cache-concurrent-decode
-  (testing "concurrent decode with :cache-idents? produces equal + interned keywords"
+  (testing "concurrent decode with :cache-idents produces equal + interned keywords"
     (let [payload {:some-key "value" :other :leaf :ns/qualified 42}
           bs (hako/encode payload)
           decoded-blocks (decode-many-times bs 200 8)
@@ -43,7 +43,7 @@
           futures (repeatedly n-threads
                               #(future
                                  (mapv (fn [bs]
-                                         (hako/decode bs {:cache-idents? true}))
+                                         (hako/decode bs {:cache-idents true}))
                                        bss)))
           results (mapv deref futures)]
       (is (every? (fn [thread-results] (= payloads thread-results)) results)

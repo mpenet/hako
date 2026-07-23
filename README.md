@@ -84,9 +84,9 @@ worked examples in [WIRE_EXAMPLES.md](WIRE_EXAMPLES.md).
 | Option                       | Default | Description                                                                             |
 |------------------------------|---------|-----------------------------------------------------------------------------------------|
 | `:initial-size`              | 256     | Starting buffer size in bytes.                                                          |
-| `:meta?`                     | false   | Preserve metadata on `IObj` values via the `with-meta` extension tag.                   |
-| `:pack-homogeneous?`         | false   | Detect all-Long / all-Double vectors and emit them as packed prim arrays.               |
-| `:coerce-custom-comparator?` | false   | Allow `sorted-set-by` / `sorted-map-by` — the custom comparator is dropped on decode.   |
+| `:preserve-meta`                     | false   | Preserve metadata on `IObj` values via the `with-meta` extension tag.                   |
+| `:pack-homogeneous`         | false   | Detect all-Long / all-Double vectors and emit them as packed prim arrays.               |
+| `:coerce-custom-comparator` | false   | Allow `sorted-set-by` / `sorted-map-by` — the custom comparator is dropped on decode.   |
 
 ### Decoding
 
@@ -106,9 +106,9 @@ worked examples in [WIRE_EXAMPLES.md](WIRE_EXAMPLES.md).
 
 | Option            | Default | Description                                                                            |
 |-------------------|---------|----------------------------------------------------------------------------------------|
-| `:zero-copy?`     | false   | Return `MemorySegment` slices for byte payloads instead of copying to `byte[]`.        |
-| `:tolerant?`      | false   | Unregistered user-tag ids yield `TaggedValue` instead of throwing.                     |
-| `:cache-idents?`  | false   | Consult a JVM-global cache when interning decoded keywords / symbols.                  |
+| `:zero-copy`     | false   | Return `MemorySegment` slices for byte payloads instead of copying to `byte[]`.        |
+| `:tolerate-unknown-tags`      | false   | Unregistered user-tag ids yield `TaggedValue` instead of throwing.                     |
+| `:cache-idents`  | false   | Consult a JVM-global cache when interning decoded keywords / symbols.                  |
 
 ## Supported types
 
@@ -124,7 +124,7 @@ Semantic equality (`=`) is preserved for all listed types.
   `PersistentHashMap`, `PersistentArrayMap`, `ISeq`.
 - `PersistentTreeSet`, `PersistentTreeMap` — default comparator
   only; custom comparators cause a write error unless
-  `:coerce-custom-comparator? true`.
+  `:coerce-custom-comparator true`.
 - `PersistentQueue`.
 - **Clojure records** via `defrecord` (requires registration).
 - **Java records** (JEP 395; requires registration).
@@ -182,7 +182,7 @@ public record Point(int x, int y) {}
 ```
 
 Frames are length-prefixed, so an unknown user-tag id can be
-skipped by a `:tolerant?` reader without derailing the surrounding
+skipped by a `:tolerate-unknown-tags` reader without derailing the surrounding
 message. See EXTENSIONS.md §E.2.
 
 ### Metadata
@@ -191,7 +191,7 @@ Opt-in per encode:
 
 ```clj
 (hako/encode (with-meta [1 2 3] {:tag :vec})
-             {:meta? true})
+             {:preserve-meta true})
 ```
 
 ## Wire format
@@ -296,10 +296,27 @@ clj -M:bench -m quick                  # 5-payload triage bench, ~40 s
 
 ## Documentation
 
+Full user guides in [`docs/`](docs/):
+
+- [Getting started](docs/getting-started.md)
+- [API reference](docs/api-reference.md)
+- [Supported types](docs/types.md)
+- [Extensions](docs/extensions.md) — records + user-tags
+- [Arenas & MemorySegment](docs/arenas.md) — memory model
+- [Streaming & batch](docs/streaming.md) — `encode-many`, log-file
+  patterns
+- [Performance & tuning](docs/performance.md)
+- [Thread safety](docs/thread-safety.md)
+
+Wire-format specifications:
+
 - [SPEC.md](SPEC.md) — byte-level wire-format specification.
 - [EXTENSIONS.md](EXTENSIONS.md) — extension registry.
 - [WIRE_EXAMPLES.md](WIRE_EXAMPLES.md) — annotated byte-by-byte
   encoding examples.
+
+Other:
+
 - [MIGRATION_NIPPY.md](MIGRATION_NIPPY.md) — Nippy → hako guide.
 - [CHANGELOG.md](CHANGELOG.md) — release notes.
 
@@ -334,4 +351,4 @@ SPEC.md · EXTENSIONS.md · WIRE_EXAMPLES.md · MIGRATION_NIPPY.md
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Mozilla Public License 2.0 — see [LICENSE](LICENSE).

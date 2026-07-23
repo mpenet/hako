@@ -16,7 +16,7 @@ type registry.
 | Thread-local buffer              | `hako/writer` + `encode-into!`     |
 | `nippy/extend-freeze`            | `ext/register-user-tag!`           |
 | `nippy/extend-thaw`              | (same call, `read-fn` argument)    |
-| `*incl-metadata?* true`          | `{:meta? true}` encode opt         |
+| `*incl-metadata?* true`          | `{:preserve-meta true}` encode opt         |
 | `*freeze-fallback*`              | Not supported — throw on unknown   |
 | `*thaw-serializable-allowlist*`  | Not supported — no `Serializable`  |
 
@@ -27,15 +27,15 @@ type registry.
 | JDK requirement                 | 8+                        | **25+ (FFM)**            |
 | Wire format compatibility       | Backward compat within v3 | v0, unstable pre-release |
 | Streaming API                   | Nippy has `freeze-to-out!`| `encode-many` (batch)    |
-| Zero-copy read                  | No                        | Yes via `:zero-copy?`    |
+| Zero-copy read                  | No                        | Yes via `:zero-copy`    |
 | Custom-comparator sorted colls  | Preserves via `compare`   | Throws (opt-in coerce)   |
 | Records                         | Automatic                 | Register per class       |
 | Java records                    | Not supported             | **Supported**            |
 | Java Serializable fallback      | Yes (opt-in)              | No                       |
 | Encryption/compression          | Built-in                  | Out-of-scope             |
-| Global keyword cache            | Always on                 | Opt-in `:cache-idents?`  |
+| Global keyword cache            | Always on                 | Opt-in `:cache-idents`  |
 | Symbol table                    | Global cache              | **Per-message**          |
-| Metadata preservation           | Opt-in dynvar             | Opt-in `:meta?`          |
+| Metadata preservation           | Opt-in dynvar             | Opt-in `:preserve-meta`          |
 
 ## Semantic differences to know
 
@@ -48,7 +48,7 @@ type registry.
 2. **Custom-comparator sorted collections throw by default.** Nippy
    serializes the comparator's presence but restores with `compare`
    (silent loss). Hako fails loud by default. Opt in to Nippy-like
-   behavior via `{:coerce-custom-comparator? true}`.
+   behavior via `{:coerce-custom-comparator true}`.
 
 3. **Records must be registered.** Nippy discovers records via
    `IRecord`. Hako requires explicit `(ext/register-record! MyRecord)`
@@ -66,7 +66,7 @@ type registry.
      to share the sym-table across values in a single blob.
 
 5. **Metadata dropped by default.** Nippy's `*incl-metadata?*` is a
-   dynvar; hako uses `{:meta? true}` per encode. Same effect,
+   dynvar; hako uses `{:preserve-meta true}` per encode. Same effect,
    different threading.
 
 6. **No wire compatibility.** Hako is v0 pre-release. Any existing

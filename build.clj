@@ -35,8 +35,8 @@
                            [:url "https://github.com/s-exp/hako"]
                            [:licenses
                             [:license
-                             [:name "MIT"]
-                             [:url "https://opensource.org/licenses/MIT"]]]
+                             [:name "Mozilla Public License 2.0"]
+                             [:url "https://www.mozilla.org/en-US/MPL/2.0/"]]]
                            [:scm
                             [:url "https://github.com/s-exp/hako"]
                             [:connection "scm:git:git://github.com/s-exp/hako.git"]

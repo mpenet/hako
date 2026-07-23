@@ -14,14 +14,14 @@
 (deftest custom-comparator-coerced
   (testing "sorted-set-by coerced to default-cmp sorted-set"
     (let [s (sorted-set-by #(compare %2 %1) 3 1 2)
-          enc (hako/encode s {:coerce-custom-comparator? true})
+          enc (hako/encode s {:coerce-custom-comparator true})
           r (hako/decode enc)]
       (is (instance? clojure.lang.PersistentTreeSet r))
       (is (= [1 2 3] (vec r)))                 ; natural order, comparator lost
       (is (= #{1 2 3} (set r)))))
   (testing "sorted-map-by coerced"
     (let [m (sorted-map-by #(compare %2 %1) :b 2 :a 1 :c 3)
-          enc (hako/encode m {:coerce-custom-comparator? true})
+          enc (hako/encode m {:coerce-custom-comparator true})
           r (hako/decode enc)]
       (is (instance? clojure.lang.PersistentTreeMap r))
       (is (= [:a :b :c] (keys r)))

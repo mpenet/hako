@@ -49,7 +49,7 @@
                               (hako/decode enc)))))
     (testing "tolerant decode with no registration yields TaggedValue"
       (with-redefs [ext/user-tag-reader (constantly nil)]
-        (let [r (hako/decode enc {:tolerant? true})]
+        (let [r (hako/decode enc {:tolerate-unknown-tags true})]
           (is (ext/tagged-value? r))
           (is (= uri-tag-id (:ext r)))
           (is (instance? MemorySegment (:bytes r))))))))
@@ -61,24 +61,24 @@
 (deftest pack-homogeneous
   (testing "vector of Long packs to prim-longs (round-trips as long[])"
     (let [v (vec (range 100))
-          packed (hako/encode v {:pack-homogeneous? true})
+          packed (hako/encode v {:pack-homogeneous true})
           r (hako/decode packed)]
       (is (= (class (long-array 0)) (class r)))
       (is (java.util.Arrays/equals (long-array v) ^longs r))))
   (testing "pack wins on size for large ints"
     (let [v (vec (repeat 100 Long/MAX_VALUE))
           plain (hako/encode v)
-          packed (hako/encode v {:pack-homogeneous? true})]
+          packed (hako/encode v {:pack-homogeneous true})]
       (is (< (alength packed) (alength plain)))))
   (testing "vector of Double packs"
     (let [v (mapv double (range 100))
-          packed (hako/encode v {:pack-homogeneous? true})
+          packed (hako/encode v {:pack-homogeneous true})
           r (hako/decode packed)]
       (is (= (class (double-array 0)) (class r)))
       (is (java.util.Arrays/equals (double-array v) ^doubles r))))
   (testing "mixed vector falls back to normal encoding"
     (let [v [1 2 "three" 4]
-          packed (hako/encode v {:pack-homogeneous? true})
+          packed (hako/encode v {:pack-homogeneous true})
           r (hako/decode packed)]
       (is (= v r))))
   (testing "opt off keeps mixed & homogeneous alike"

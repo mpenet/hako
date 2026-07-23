@@ -179,7 +179,7 @@ EF <u32 id LE> 0E <u32 payload-length LE> <payload bytes>
 └─ payload   = whatever the user's write-fn emitted
 ```
 
-A `:tolerant? true` decoder can skip an unknown tag by advancing
+A `:tolerate-unknown-tags true` decoder can skip an unknown tag by advancing
 `payload-length` bytes past the length prefix — no need to
 understand the payload contents.
 

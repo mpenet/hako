@@ -12,7 +12,7 @@
         (is (java.util.Arrays/equals payload ^bytes r))))
     (testing "zero-copy decode returns MemorySegment slice"
       (let [seg-src (MemorySegment/ofArray enc)
-            r (hako/decode seg-src {:zero-copy? true})]
+            r (hako/decode seg-src {:zero-copy true})]
         (is (instance? MemorySegment r))
         (is (= 256 (.byteSize ^MemorySegment r)))
         (dotimes [i 256]
@@ -23,7 +23,7 @@
   (let [payload {:blob (byte-array [10 20 30 40])
                  :meta "info"}
         enc (hako/encode payload)
-        r (hako/decode (MemorySegment/ofArray enc) {:zero-copy? true})]
+        r (hako/decode (MemorySegment/ofArray enc) {:zero-copy true})]
     (is (instance? MemorySegment (:blob r)))
     (is (= 4 (.byteSize ^MemorySegment (:blob r))))
     (is (= "info" (:meta r)))))
