@@ -87,8 +87,8 @@
         ;; Adapt the ctor MH so all params accept Object (via
         ;; explicitCastArguments' permissive Number→primitive coercion).
         ;; Otherwise Long → int / short / byte narrowing fails at invoke.
-        generic (MethodType/methodType (.returnType (.type raw-mh))
-                                       (into-array Class (repeat n Object)))
+        generic (MethodType/methodType ^Class (.returnType (.type ^MethodHandle raw-mh))
+                                       ^"[Ljava.lang.Class;" (into-array Class (repeat n Object)))
         mh (MethodHandles/explicitCastArguments raw-mh generic)
         accessor-mhs (when java-rec? (java-record-accessor-mhs klass))]
     {:class klass

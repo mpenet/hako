@@ -32,7 +32,7 @@ public final class Writer implements AutoCloseable {
     private MemorySegment seg;
     private long pos;
     private long cap;
-    private final HashMap<String, Long> symTable = new HashMap<>();
+    private final HashMap<Object, Long> symTable = new HashMap<>();
     private long nextSymIdx = 0;
     private boolean writeMeta = false;
     private boolean packHomogeneous = false;
@@ -324,6 +324,26 @@ public final class Writer implements AutoCloseable {
         pos += bytes;
     }
 
+    public void writeIntArray(int[] arr) {
+        int n = arr.length;
+        putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_INTS));
+        putTierValue(n);
+        long bytes = (long) n * 4L;
+        ensure(bytes);
+        MemorySegment.copy(arr, 0, seg, Format.LE_INT, pos, n);
+        pos += bytes;
+    }
+
+    public void writeFloatArray(float[] arr) {
+        int n = arr.length;
+        putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_FLOATS));
+        putTierValue(n);
+        long bytes = (long) n * 4L;
+        ensure(bytes);
+        MemorySegment.copy(arr, 0, seg, Format.LE_FLOAT, pos, n);
+        pos += bytes;
+    }
+
     public void writeVectorHeader(long n) {
         putSizedTag(Format.M_VEC, n);
     }
@@ -345,12 +365,14 @@ public final class Writer implements AutoCloseable {
      * per-message symbol table. Subsequent occurrences emit a symref.
      *
      * @param major Format.M_KW or Format.M_SYM
+     * @param internKey object used as the sym-table lookup key —
+     *                  Keyword / Symbol instances hash uniquely; plain
+     *                  Strings are also valid keys for classname interning.
      * @param ns namespace, or null / empty
      * @param name local name (never null)
      */
-    public void writeInterned(int major, String ns, String name) {
-        String key = (ns == null ? "" : ns) + " " + name;
-        Long idx = symTable.get(key);
+    public void writeInterned(int major, Object internKey, String ns, String name) {
+        Long idx = symTable.get(internKey);
         if (idx != null) {
             putSizedTag(Format.M_SYMREF, idx);
             return;
@@ -366,7 +388,7 @@ public final class Writer implements AutoCloseable {
         putByte(nsLen);
         if (nsLen > 0) putBytes(nsBs);
         putBytes(nameBs);
-        symTable.put(key, nextSymIdx++);
+        symTable.put(internKey, nextSymIdx++);
     }
 
     // -- Bignumeric --------------------------------------------------------
@@ -493,7 +515,7 @@ public final class Writer implements AutoCloseable {
         if (v instanceof Long) { writeLong((Long) v); return; }
         if (v instanceof Keyword) {
             Keyword k = (Keyword) v;
-            writeInterned(Format.M_KW, k.getNamespace(), k.getName());
+            writeInterned(Format.M_KW, k, k.getNamespace(), k.getName());
             return;
         }
         if (v instanceof String) { writeString((String) v); return; }
@@ -513,7 +535,7 @@ public final class Writer implements AutoCloseable {
         if (v instanceof IPersistentSet)    { writeSetAny((IPersistentSet) v); return; }
         if (v instanceof Symbol) {
             Symbol s = (Symbol) v;
-            writeInterned(Format.M_SYM, s.getNamespace(), s.getName());
+            writeInterned(Format.M_SYM, s, s.getNamespace(), s.getName());
             return;
         }
 
@@ -544,6 +566,8 @@ public final class Writer implements AutoCloseable {
         if (v instanceof byte[])   { writeBytes((byte[]) v); return; }
         if (v instanceof long[])   { writeLongArray((long[]) v); return; }
         if (v instanceof double[]) { writeDoubleArray((double[]) v); return; }
+        if (v instanceof int[])    { writeIntArray((int[]) v); return; }
+        if (v instanceof float[])  { writeFloatArray((float[]) v); return; }
 
         if (v instanceof ISeq)     { writeSeqAny((ISeq) v); return; }
         if (v instanceof Iterable) { writeIterableAny((Iterable<?>) v); return; }

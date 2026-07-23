@@ -203,6 +203,24 @@ public final class Reader {
         return arr;
     }
 
+    public int[] readIntArray(int n) {
+        long bytes = (long) n * 4L;
+        need(bytes);
+        int[] arr = new int[n];
+        MemorySegment.copy(seg, Format.LE_INT, pos, arr, 0, n);
+        pos += bytes;
+        return arr;
+    }
+
+    public float[] readFloatArray(int n) {
+        long bytes = (long) n * 4L;
+        need(bytes);
+        float[] arr = new float[n];
+        MemorySegment.copy(seg, Format.LE_FLOAT, pos, arr, 0, n);
+        pos += bytes;
+        return arr;
+    }
+
     public long readTierPayload(int code) {
         if (code <= Format.TIER_INLINE_MAX) return code;
         return switch (code) {
@@ -470,6 +488,14 @@ public final class Reader {
             case Format.EXT_PRIM_DOUBLES: {
                 int n = (int) checkCount(readTierValue(), "prim-doubles count");
                 return readDoubleArray(n);
+            }
+            case Format.EXT_PRIM_INTS: {
+                int n = (int) checkCount(readTierValue(), "prim-ints count");
+                return readIntArray(n);
+            }
+            case Format.EXT_PRIM_FLOATS: {
+                int n = (int) checkCount(readTierValue(), "prim-floats count");
+                return readFloatArray(n);
             }
             case Format.EXT_USER_TAG:
                 if (extensionHandler == null) {

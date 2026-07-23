@@ -13,10 +13,13 @@
   For arena-backed zero-copy output use `encode-to-segment`.
 
   Options:
-    :initial-size       — starting buffer size in bytes (default 256).
-    :meta?              — preserve metadata on collections / IObjs (default false).
-    :pack-homogeneous?  — detect all-Long / all-Double vectors and emit
-                          them as packed prim arrays (default false)."
+    :initial-size                — starting buffer size in bytes (default 256).
+    :meta?                       — preserve metadata on collections / IObjs (default false).
+    :pack-homogeneous?           — detect all-Long / all-Double vectors and emit
+                                   them as packed prim arrays (default false).
+    :coerce-custom-comparator?   — allow encoding sorted-set-by / sorted-map-by
+                                   as default-cmp sorted collections. Comparator
+                                   is lost on decode. Warns once per JVM."
   (^bytes [value] (encode value nil))
   (^bytes [value opts]
    (let [initial (long (or (:initial-size opts) 256))
@@ -24,6 +27,7 @@
      (try
        (.setWriteMeta wr (boolean (:meta? opts)))
        (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
+       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (.writeAny wr value)
@@ -44,6 +48,7 @@
      (try
        (.setWriteMeta wr (boolean (:meta? opts)))
        (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
+       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (.writeAny wr value)
@@ -70,6 +75,7 @@
    (.reset wr)
    (.setWriteMeta wr (boolean (:meta? opts)))
    (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
+   (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
    (w/install-handler! wr)
    (.writeEnvelope wr)
    (.writeAny wr value)
@@ -105,6 +111,52 @@
      (.setCacheIdents rd (boolean (:cache-idents? opts)))
      (.readEnvelope rd)
      (.readAny rd))))
+
+(defn encode-many
+  "Encode `values` (a sequence) into a single byte[] sharing one symbol
+  table across the whole stream. Reads compact when many values repeat
+  the same keyword / symbol identifiers.
+
+  The output has one envelope prefix followed by concatenated encoded
+  values. Use `decode-many` to read back."
+  (^bytes [values] (encode-many values nil))
+  (^bytes [values opts]
+   (let [initial (long (or (:initial-size opts) 4096))
+         wr (Writer. initial)]
+     (try
+       (.setWriteMeta wr (boolean (:meta? opts)))
+       (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
+       (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
+       (w/install-handler! wr)
+       (.writeEnvelope wr)
+       (doseq [v values] (.writeAny wr v))
+       (let [seg (.finish wr)
+             n (.byteSize seg)
+             arr (byte-array n)]
+         (MemorySegment/copy seg ValueLayout/JAVA_BYTE 0 arr 0 n)
+         arr)
+       (finally (.close wr))))))
+
+(defn decode-many
+  "Decode a `src` produced by `encode-many` and return a vector of the
+  values. Reads until end-of-stream."
+  ([src] (decode-many src nil))
+  ([src opts]
+   (let [seg (cond
+               (instance? MemorySegment src) src
+               (bytes? src) (MemorySegment/ofArray ^bytes src)
+               :else (throw (ex-info "hako: unsupported source"
+                                     {:type (class src)})))
+         rd (Reader. seg)]
+     (r/configure! rd)
+     (.setZeroCopy rd (boolean (:zero-copy? opts)))
+     (.setTolerant rd (boolean (:tolerant? opts)))
+     (.setCacheIdents rd (boolean (:cache-idents? opts)))
+     (.readEnvelope rd)
+     (loop [acc (transient [])]
+       (if (zero? (.remaining rd))
+         (persistent! acc)
+         (recur (conj! acc (.readAny rd))))))))
 
 (defn decode
   "Decode a hako-format value from `src` — a byte[] or a MemorySegment.

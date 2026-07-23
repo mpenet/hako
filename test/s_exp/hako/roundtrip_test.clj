@@ -50,6 +50,12 @@
   (is (= 'foo    (rt 'foo)))
   (is (= 'ns/foo (rt 'ns/foo))))
 
+(deftest kw-sym-same-name-no-collision
+  (testing "kw and sym with same name do not share a sym-table slot"
+    (is (= [:foo 'foo] (rt [:foo 'foo])))
+    (is (= ['bar :bar] (rt ['bar :bar])))
+    (is (= [:a 'a :a 'a] (rt [:a 'a :a 'a])))))
+
 (deftest collections
   (is (= []           (rt [])))
   (is (= [1 2 3]      (rt [1 2 3])))

@@ -18,20 +18,34 @@
       (throw (ex-info "hako: record class not registered"
                       {:class (.getName klass)})))
     (.putByte w (Format/tag Format/M_EXT Format/EXT_RECORD))
-    (.writeInterned w Format/M_SYM nil (.getName klass))
+    (.writeInterned w Format/M_SYM (.getName klass) nil (.getName klass))
     (.putTierValue w (:field-count info))
     (if (:java-record? info)
-      (let [xs (into-array Object [x])]
+      (let [^"[Ljava.lang.Object;" xs (into-array Object [x])]
         (doseq [^java.lang.invoke.MethodHandle mh (:accessor-mhs info)]
           (.writeAny w (.invokeWithArguments mh xs))))
       (doseq [k (:field-kws info)]
         (.writeAny w (get x k))))))
 
+(def ^:private warned-custom-cmp?
+  "Emits the coercion warning at most once per JVM."
+  (atom false))
+
+(defn- maybe-warn-custom-cmp! [coll]
+  (when (compare-and-set! warned-custom-cmp? false true)
+    (binding [*out* *err*]
+      (println (str "hako: WARNING — coercing custom comparator on "
+                    (class coll)
+                    " to natural ordering on encode; the comparator will "
+                    "not be restored on decode.")))))
+
 (defn- write-sorted-set!
   [^Writer w ^PersistentTreeSet s]
   (when-not (ext/default-comparator? s)
-    (throw (ex-info "hako: cannot encode sorted-set with custom comparator"
-                    {:comparator (.comparator s)})))
+    (if (.coerceCustomComparator w)
+      (maybe-warn-custom-cmp! s)
+      (throw (ex-info "hako: cannot encode sorted-set with custom comparator"
+                      {:comparator (.comparator s)}))))
   (.putByte w (Format/tag Format/M_EXT Format/EXT_SORTED_SET))
   (.putTierValue w (.count s))
   (reduce (fn [_ x] (.writeAny w x) nil) nil s))
@@ -39,8 +53,10 @@
 (defn- write-sorted-map!
   [^Writer w ^PersistentTreeMap m]
   (when-not (ext/default-comparator? m)
-    (throw (ex-info "hako: cannot encode sorted-map with custom comparator"
-                    {:comparator (.comparator m)})))
+    (if (.coerceCustomComparator w)
+      (maybe-warn-custom-cmp! m)
+      (throw (ex-info "hako: cannot encode sorted-map with custom comparator"
+                      {:comparator (.comparator m)}))))
   (.putByte w (Format/tag Format/M_EXT Format/EXT_SORTED_MAP))
   (.putTierValue w (.count m))
   (reduce-kv

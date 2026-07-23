@@ -61,6 +61,8 @@ public final class Format {
     public static final int EXT_WITH_META = 4;
     public static final int EXT_PRIM_LONGS = 5;
     public static final int EXT_PRIM_DOUBLES = 6;
+    public static final int EXT_PRIM_INTS = 7;
+    public static final int EXT_PRIM_FLOATS = 8;
     public static final int EXT_USER_TAG = 15;
 
     public static final ValueLayout.OfShort LE_SHORT =
