@@ -1,6 +1,7 @@
 (ns s-exp.hako.ext
   "Extension registry: records, sorted-collection helpers, user tags."
-  (:import (clojure.lang PersistentTreeMap PersistentTreeSet)
+  (:import (clojure.lang Keyword PersistentTreeMap PersistentTreeSet)
+           (com.s_exp.hako RecordInfo RecordRegistry)
            (java.lang.foreign MemorySegment)
            (java.lang.invoke MethodHandle MethodHandles MethodType)
            (java.lang.reflect Constructor)))
@@ -30,8 +31,11 @@
                 (.comparator ^PersistentTreeMap sorted-coll))))
 
 ;; -- Record registry --------------------------------------------------------
-
-(def ^:private record-registry (atom {}))
+;;
+;; The Java-side com.s_exp.hako.RecordRegistry stores the actual entries;
+;; this ns builds a RecordInfo from a Class then hands it over. Encode /
+;; decode dispatch is fully in Java — no Clojure atom is consulted on
+;; the hot path.
 
 (defn- clj-record?
   "True when `klass` is a Clojure defrecord — it exposes a static
@@ -63,16 +67,26 @@
                       {:class (.getName klass) :field-count n}))))
 
 (defn- java-record-accessor-mhs
-  "Cache MethodHandles for each RecordComponent's accessor method."
+  "MethodHandle per Java record accessor. Adapted so each returns
+  Object instead of the declared primitive type — the invoke path
+  auto-boxes without an extra reflection hop."
   [^Class klass]
   (let [lookup (MethodHandles/lookup)]
     (mapv (fn [^java.lang.reflect.RecordComponent rc]
-            (.unreflect lookup (.getAccessor rc)))
+            (let [raw (.unreflect lookup (.getAccessor rc))
+                  generic (MethodType/methodType Object
+                                                 ^"[Ljava.lang.Class;"
+                                                 (into-array Class [klass]))]
+              (MethodHandles/explicitCastArguments raw generic)))
           (.getRecordComponents klass))))
 
-(defn- record-info
-  "Compute registry entry for a record class (Clojure defrecord or Java
-  record)."
+(defn register-record!
+  "Register a Clojure defrecord OR Java record class so hako can encode
+  and decode its instances.
+
+  Reflects on the class once, caches a MethodHandle for the canonical
+  constructor (and per-field accessor MHs for Java records), and hands
+  the resulting RecordInfo to the Java-side registry."
   [^Class klass]
   (let [java-rec? (.isRecord klass)
         field-names (cond
@@ -81,40 +95,26 @@
                       :else (throw (ex-info "hako: not a record class"
                                             {:class (.getName klass)})))
         n (count field-names)
-        field-kws (mapv keyword field-names)
         ctor (find-canonical-ctor klass n)
         raw-mh (.unreflectConstructor (MethodHandles/lookup) ctor)
-        ;; Adapt the ctor MH so all params accept Object (via
-        ;; explicitCastArguments' permissive Number→primitive coercion).
-        ;; Otherwise Long → int / short / byte narrowing fails at invoke.
-        generic (MethodType/methodType ^Class (.returnType (.type ^MethodHandle raw-mh))
-                                       ^"[Ljava.lang.Class;" (into-array Class (repeat n Object)))
-        mh (MethodHandles/explicitCastArguments raw-mh generic)
-        accessor-mhs (when java-rec? (java-record-accessor-mhs klass))]
-    {:class klass
-     :java-record? java-rec?
-     :field-count n
-     :field-kws field-kws
-     :field-names field-names
-     :accessor-mhs accessor-mhs
-     :ctor-mh mh}))
-
-(defn register-record!
-  "Register a Clojure defrecord OR Java record class so hako can encode
-  and decode its instances.
-
-  Reflects on the class once to discover field order and cache a
-  MethodHandle for the canonical positional constructor."
-  [^Class klass]
-  (let [info (record-info klass)]
-    (swap! record-registry assoc (.getName klass) info)
+        ctor-generic (MethodType/methodType ^Class (.returnType (.type ^MethodHandle raw-mh))
+                                            ^"[Ljava.lang.Class;"
+                                            (into-array Class (repeat n Object)))
+        ctor-mh (MethodHandles/explicitCastArguments raw-mh ctor-generic)
+        field-kws (when-not java-rec?
+                    (into-array Keyword (map keyword field-names)))
+        accessor-mhs (when java-rec?
+                       (into-array MethodHandle (java-record-accessor-mhs klass)))
+        info (RecordInfo. klass (.getName klass) (int n) (boolean java-rec?)
+                          field-kws accessor-mhs ctor-mh)]
+    (RecordRegistry/put info)
     klass))
 
 (defn record-info-by-class [^Class klass]
-  (get @record-registry (.getName klass)))
+  (RecordRegistry/byClass klass))
 
 (defn record-info-by-name [^String classname]
-  (get @record-registry classname))
+  (RecordRegistry/byName classname))
 
 ;; -- User-tag registry ------------------------------------------------------
 ;;

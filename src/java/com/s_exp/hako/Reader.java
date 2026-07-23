@@ -69,11 +69,11 @@ public final class Reader {
     public int arrayMapKwThreshold() { return arrayMapKwThreshold; }
 
     /**
-     * Handler invoked for extension subtypes that require the Clojure
-     * registry lookup: records (subtype 3) and user-tags (subtype 15).
+     * Handler invoked for extension subtypes that need the Clojure
+     * user-tag registry. Records are handled entirely in Java (see
+     * {@link RecordRegistry}), so this interface only covers user-tags.
      */
     public interface ExtensionHandler {
-        Object readRecord(Reader r);
         Object readUserTag(Reader r);
     }
 
@@ -100,6 +100,8 @@ public final class Reader {
         this.zeroCopy = false;
         this.tolerant = false;
         this.cacheIdents = false;
+        // Preserve extensionHandler and arrayMapThresholds — they are
+        // one-time setup for the lifetime of the Reader instance.
     }
 
     public long pos() { return pos; }
@@ -276,6 +278,13 @@ public final class Reader {
     private String[] readIdentPayload(int tierCode) {
         long totalLen = checkCount(readTierPayload(tierCode), "identifier length");
         int nsLen = getByte();
+        // Spec (SPEC.md §3.4): ns-length + 1 + name-length == size-tier length.
+        // Reject a corrupted stream where ns-length overruns the announced total.
+        if (nsLen + 1 > totalLen) {
+            throw new IllegalStateException(
+                "hako: identifier ns-length " + nsLen
+                + " exceeds declared payload length " + totalLen);
+        }
         int nameLen = (int) totalLen - 1 - nsLen;
         String ns = nsLen > 0 ? getString(nsLen) : null;
         String name = getString(nameLen);
@@ -451,6 +460,28 @@ public final class Reader {
         return m;
     }
 
+    private Object readRecord() {
+        Object classnameSym = readAny();
+        String className = classnameSym.toString();
+        RecordInfo info = RecordRegistry.byName(className);
+        if (info == null) {
+            throw new IllegalStateException("hako: unknown record class: " + className);
+        }
+        long n = checkCount(readTierValue(), "record field count");
+        if (n != info.fieldCount()) {
+            throw new IllegalStateException(
+                "hako: record field count mismatch (expected " + info.fieldCount()
+                + ", got " + n + ")");
+        }
+        Object[] args = new Object[(int) n];
+        for (int i = 0; i < n; i++) args[i] = readAny();
+        try {
+            return info.ctorMH().invokeWithArguments(args);
+        } catch (Throwable t) {
+            throw new IllegalStateException("hako: record ctor failed", t);
+        }
+    }
+
     private Object readQueue() {
         int n = (int) checkCount(readTierValue(), "queue count");
         PersistentQueue q = PersistentQueue.EMPTY;
@@ -475,11 +506,7 @@ public final class Reader {
             case Format.EXT_SORTED_MAP: return readSortedMap();
             case Format.EXT_QUEUE:      return readQueue();
             case Format.EXT_RECORD:
-                if (extensionHandler == null) {
-                    throw new IllegalStateException(
-                        "hako: record extension seen but no ExtensionHandler installed");
-                }
-                return extensionHandler.readRecord(this);
+                return readRecord();
             case Format.EXT_WITH_META:  return readWithMeta();
             case Format.EXT_PRIM_LONGS: {
                 int n = (int) checkCount(readTierValue(), "prim-longs count");

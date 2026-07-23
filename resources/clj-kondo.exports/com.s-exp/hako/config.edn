@@ -1,0 +1,3 @@
+{:hooks
+ {:analyze-call
+  {s-exp.hako.ext/register-user-tag! hooks.hako/register-user-tag!}}}

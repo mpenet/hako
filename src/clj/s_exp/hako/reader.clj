@@ -1,12 +1,10 @@
 (ns s-exp.hako.reader
-  "Thin dispatch bridge for hako decode. The hot path — tag-byte
-  dispatch, container recursion, all scalar decodings — lives in
-  com.s_exp.hako.Reader.readAny. This namespace threshold-probes the
-  runtime's PersistentArrayMap behavior and installs the Clojure
-  callback (records, user-tags)."
+  "Thin dispatch bridge for hako decode. Scalar / collection / record
+  decoding all live in com.s_exp.hako.Reader.readAny (Java). This
+  namespace threshold-probes the runtime's PersistentArrayMap behavior
+  and installs a Clojure user-tag callback."
   (:require [s-exp.hako.ext :as ext])
-  (:import (com.s_exp.hako Reader Reader$ExtensionHandler)
-           (java.lang.invoke MethodHandle)))
+  (:import (com.s_exp.hako Reader Reader$ExtensionHandler)))
 
 (set! *warn-on-reflection* true)
 
@@ -28,20 +26,7 @@
 (def ^:private ARRAY-MAP-KW-THRESHOLD
   (long (probe-array-map-threshold #(keyword (str "k" %)))))
 
-;; -- ExtensionHandler --------------------------------------------------------
-
-(defn- read-record! [^Reader r]
-  (let [classname-sym (.readAny r)
-        classname (str classname-sym)
-        info (ext/record-info-by-name classname)
-        _ (when-not info
-            (throw (ex-info "hako: unknown record class"
-                            {:class classname})))
-        n (long (.readTierValue r))
-        args (object-array n)]
-    (dotimes [i n]
-      (aset args (int i) (.readAny r)))
-    (.invokeWithArguments ^MethodHandle (:ctor-mh info) args)))
+;; -- User-tag handler --------------------------------------------------------
 
 (defn- read-user-tag! [^Reader r]
   (let [id (bit-and (.getU32 r) 0xFFFFFFFF)
@@ -68,19 +53,17 @@
 
 (def ^Reader$ExtensionHandler HANDLER
   (reify Reader$ExtensionHandler
-    (readRecord [_ r] (read-record! ^Reader r))
     (readUserTag [_ r] (read-user-tag! ^Reader r))))
 
 (defn configure!
   "Prepare a fresh (or reset) Reader for decode: set the array-map
   thresholds probed from the running Clojure runtime and install the
-  extension handler."
+  user-tag callback. Called once at Reader creation."
   [^Reader r]
   (.setArrayMapThresholds r (int ARRAY-MAP-THRESHOLD) (int ARRAY-MAP-KW-THRESHOLD))
   (.setExtensionHandler r HANDLER))
 
 (defn read-value!
-  "Backwards-compatible facade around `.readAny`. New code should call
-  `.readAny` directly after `configure!`."
+  "Backwards-compatible facade around `.readAny`."
   [^Reader r]
   (.readAny r))

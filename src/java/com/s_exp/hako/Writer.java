@@ -12,6 +12,7 @@ import clojure.lang.Symbol;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandle;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -95,7 +96,7 @@ public final class Writer implements AutoCloseable {
         writeMeta = false;
         packHomogeneous = false;
         coerceCustomComparator = false;
-        unknownHandler = null;
+        // Preserve unknownHandler across reset — it's a one-time setup.
     }
 
     @Override
@@ -397,6 +398,37 @@ public final class Writer implements AutoCloseable {
         symTable.put(internKey, nextSymIdx++);
     }
 
+    // -- Records -----------------------------------------------------------
+
+    public void writeRecord(Object v) {
+        Class<?> klass = v.getClass();
+        RecordInfo info = RecordRegistry.byClass(klass);
+        if (info == null) {
+            throw new IllegalStateException(
+                "hako: record class not registered: " + klass.getName());
+        }
+        putByte(Format.tag(Format.M_EXT, Format.EXT_RECORD));
+        writeInterned(Format.M_SYM, info.className(), null, info.className());
+        putTierValue(info.fieldCount());
+        if (info.javaRecord()) {
+            Object[] singleArg = { v };
+            for (MethodHandle mh : info.accessorMHs()) {
+                Object fieldVal;
+                try {
+                    fieldVal = mh.invokeWithArguments(singleArg);
+                } catch (Throwable t) {
+                    throw new IllegalStateException("hako: record accessor failed", t);
+                }
+                writeAny(fieldVal);
+            }
+        } else {
+            IPersistentMap m = (IPersistentMap) v;
+            for (Keyword k : info.fieldKeywords()) {
+                writeAny(m.valAt(k));
+            }
+        }
+    }
+
     // -- Bignumeric --------------------------------------------------------
 
     public void writeBigInteger(BigInteger x) {
@@ -528,10 +560,15 @@ public final class Writer implements AutoCloseable {
         }
         if (v instanceof String) { writeString((String) v); return; }
 
-        // Delegate types that overlap generic interfaces below.
-        if (v instanceof clojure.lang.IRecord
-            || v.getClass().isRecord()
-            || v instanceof clojure.lang.PersistentTreeSet
+        // Records dispatch straight to the Java write path — skip the
+        // Clojure fallback handler.
+        if (v instanceof clojure.lang.IRecord || v.getClass().isRecord()) {
+            writeRecord(v);
+            return;
+        }
+        // Delegate remaining types that overlap generic interfaces below
+        // to the Clojure fallback (sorted colls, queue, user-tags).
+        if (v instanceof clojure.lang.PersistentTreeSet
             || v instanceof clojure.lang.PersistentTreeMap
             || v instanceof clojure.lang.PersistentQueue) {
             fallback(v);

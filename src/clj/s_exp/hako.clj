@@ -64,19 +64,24 @@
   bytes (default 4096). Close via `.close` when done. Use `encode-into!`
   for each message; the writer's arena is retained between calls."
   (^Writer [] (writer 4096))
-  (^Writer [^long initial-size] (Writer. initial-size)))
+  (^Writer [^long initial-size]
+   (let [wr (Writer. initial-size)]
+     (w/install-handler! wr)
+     wr)))
 
 (defn encode-into!
   "Encode `value` using the reusable `wr`. Returns a MemorySegment slice
   covering the encoded bytes. The slice is valid until the next
-  `encode-into!` call on this writer, or `close`."
+  `encode-into!` call on this writer, or `close`.
+
+  The Writer must have had `w/install-handler!` called at least once
+  (the `writer` fn does this). `.reset` preserves the handler."
   (^MemorySegment [^Writer wr value] (encode-into! wr value nil))
   (^MemorySegment [^Writer wr value opts]
    (.reset wr)
    (.setWriteMeta wr (boolean (:meta? opts)))
    (.setPackHomogeneous wr (boolean (:pack-homogeneous? opts)))
    (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator? opts)))
-   (w/install-handler! wr)
    (.writeEnvelope wr)
    (.writeAny wr value)
    (.finish wr)))
@@ -96,7 +101,11 @@
 
 (defn decode-into!
   "Decode a value using the reusable Reader `rd` rebound to `src`.
-  Rebinds via `.reset` on each call."
+  Rebinds via `.reset` on each call.
+
+  The Reader must have been produced by the `reader` fn (or otherwise
+  have `r/configure!` called on it); `.reset` preserves the extension
+  handler and array-map thresholds."
   ([^Reader rd src] (decode-into! rd src nil))
   ([^Reader rd src opts]
    (let [seg (cond
@@ -105,7 +114,6 @@
                :else (throw (ex-info "hako: unsupported source"
                                      {:type (class src)})))]
      (.reset rd seg)
-     (r/configure! rd)
      (.setZeroCopy rd (boolean (:zero-copy? opts)))
      (.setTolerant rd (boolean (:tolerant? opts)))
      (.setCacheIdents rd (boolean (:cache-idents? opts)))

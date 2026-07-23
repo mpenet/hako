@@ -1,8 +1,11 @@
 (ns bench
-  "Criterium benchmarks: hako vs Nippy vs Deed vs Transit.
+  "Criterium benchmarks: hako vs Nippy (default + fast) vs Deed vs Transit.
 
-  Note: Transit is a different niche (JSON-shaped, cross-lang) but
-  included as a size / speed reference.
+  Notes:
+  - Nippy has two variants: `freeze` (default; includes compression + checksums)
+    and `fast-freeze` (skips those). Both are shown.
+  - Transit is a different niche (JSON-shaped, cross-language) — included as
+    a size / speed reference.
 
   Run: clj -M:bench -m bench [payload-label ...]"
   (:require [cognitect.transit :as transit]
@@ -36,37 +39,33 @@
         r (transit/reader bais :msgpack)]
     (transit/read r)))
 
-(defn- safe-transit-encode [payload]
-  (try (transit-encode payload) (catch Exception _ nil)))
+(defn- safe [f payload]
+  (try (f payload) (catch Exception _ nil)))
 
 (defn- bench-one [label payload]
   (println "===" label "===")
-  (let [hako-enc (hako/encode payload)
-        nippy-enc (nippy/fast-freeze payload)
-        deed-enc (deed/encode-to-bytes payload)
-        transit-enc (safe-transit-encode payload)]
+  (let [hako-enc       (hako/encode payload)
+        nippy-enc      (nippy/freeze payload)
+        nippy-fast-enc (nippy/fast-freeze payload)
+        deed-enc       (deed/encode-to-bytes payload)
+        transit-enc    (safe transit-encode payload)]
     (println "  size  — hako:" (alength hako-enc)
              " nippy:" (alength nippy-enc)
+             " nippy-fast:" (alength nippy-fast-enc)
              " deed:" (alength deed-enc)
              " transit:" (if transit-enc (alength transit-enc) "n/a"))
-    (println "  hako encode:")
-    (c/quick-bench (hako/encode payload))
-    (println "  nippy encode:")
-    (c/quick-bench (nippy/fast-freeze payload))
-    (println "  deed encode:")
-    (c/quick-bench (deed/encode-to-bytes payload))
+    (println "  hako encode:")       (c/quick-bench (hako/encode payload))
+    (println "  nippy encode:")      (c/quick-bench (nippy/freeze payload))
+    (println "  nippy-fast encode:") (c/quick-bench (nippy/fast-freeze payload))
+    (println "  deed encode:")       (c/quick-bench (deed/encode-to-bytes payload))
     (when transit-enc
-      (println "  transit encode:")
-      (c/quick-bench (transit-encode payload)))
-    (println "  hako decode:")
-    (c/quick-bench (hako/decode hako-enc))
-    (println "  nippy decode:")
-    (c/quick-bench (nippy/fast-thaw nippy-enc))
-    (println "  deed decode:")
-    (c/quick-bench (deed/decode-from deed-enc))
+      (println "  transit encode:")  (c/quick-bench (transit-encode payload)))
+    (println "  hako decode:")       (c/quick-bench (hako/decode hako-enc))
+    (println "  nippy decode:")      (c/quick-bench (nippy/thaw nippy-enc))
+    (println "  nippy-fast decode:") (c/quick-bench (nippy/fast-thaw nippy-fast-enc))
+    (println "  deed decode:")       (c/quick-bench (deed/decode-from deed-enc))
     (when transit-enc
-      (println "  transit decode:")
-      (c/quick-bench (transit-decode transit-enc)))))
+      (println "  transit decode:")  (c/quick-bench (transit-decode transit-enc)))))
 
 (defn -main [& args]
   (let [selected (if (seq args)

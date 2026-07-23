@@ -1,31 +1,13 @@
 (ns s-exp.hako.writer
-  "Thin dispatch bridge for hako encode. The hot path — instanceof
-  dispatch, container recursion, all scalar encodings — lives in
-  com.s_exp.hako.Writer.writeAny. This namespace only handles the
-  callback (records, sorted colls, queue, user-tags)."
+  "Thin dispatch bridge for hako encode. Scalar / collection / record
+  encoding all live in com.s_exp.hako.Writer.writeAny (Java). This
+  namespace only handles the fallback callback — sorted collections,
+  queue, and user-tagged types."
   (:require [s-exp.hako.ext :as ext])
-  (:import (clojure.lang IRecord PersistentQueue PersistentTreeMap
-                         PersistentTreeSet)
+  (:import (clojure.lang PersistentQueue PersistentTreeMap PersistentTreeSet)
            (com.s_exp.hako Format Writer Writer$UnknownHandler)))
 
 (set! *warn-on-reflection* true)
-
-(defn- write-record!
-  [^Writer w x]
-  (let [klass (class x)
-        info (ext/record-info-by-class klass)]
-    (when-not info
-      (throw (ex-info "hako: record class not registered"
-                      {:class (.getName klass)})))
-    (.putByte w (Format/tag Format/M_EXT Format/EXT_RECORD))
-    (.writeInterned w Format/M_SYM (.getName klass) nil (.getName klass))
-    (.putTierValue w (:field-count info))
-    (if (:java-record? info)
-      (let [^"[Ljava.lang.Object;" xs (into-array Object [x])]
-        (doseq [^java.lang.invoke.MethodHandle mh (:accessor-mhs info)]
-          (.writeAny w (.invokeWithArguments mh xs))))
-      (doseq [k (:field-kws info)]
-        (.writeAny w (get x k))))))
 
 (def ^:private warned-custom-cmp?
   "Emits the coercion warning at most once per JVM."
@@ -84,16 +66,9 @@
       (let [w ^Writer w
             klass (class v)]
         (cond
-          (or (instance? IRecord v) (.isRecord klass))
-          (if (ext/record-info-by-class klass)
-            (write-record! w v)
-            (throw (ex-info "hako: record class not registered"
-                            {:class (.getName klass)})))
-
           (instance? PersistentTreeSet v) (write-sorted-set! w v)
           (instance? PersistentTreeMap v) (write-sorted-map! w v)
-          (instance? PersistentQueue v) (write-queue! w v)
-
+          (instance? PersistentQueue v)   (write-queue! w v)
           :else
           (if-let [info (ext/user-tag-for-class klass)]
             (write-user-tag! w v info)
@@ -101,13 +76,12 @@
                             {:type klass :value v}))))))))
 
 (defn install-handler!
-  "Attach the Clojure fallback handler to `w`. Must be called after
-  reset or on a fresh writer, before any writeAny call."
+  "Attach the Clojure fallback handler to `w`. Called once at Writer
+  creation — the handler is retained across `.reset`."
   [^Writer w]
   (.setUnknownHandler w HANDLER))
 
 (defn write-value!
-  "Backwards-compatible facade around `.writeAny`. New code should call
-  `.writeAny` directly after `install-handler!`."
+  "Backwards-compatible facade around `.writeAny`."
   [^Writer w x]
   (.writeAny w x))

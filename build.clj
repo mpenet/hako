@@ -41,7 +41,7 @@
                             [:url "https://github.com/s-exp/hako"]
                             [:connection "scm:git:git://github.com/s-exp/hako.git"]
                             [:developerConnection "scm:git:ssh://git@github.com/s-exp/hako.git"]]]})
-  (b/copy-dir {:src-dirs ["src/clj"]
+  (b/copy-dir {:src-dirs ["src/clj" "resources"]
                :target-dir class-dir})
   (b/jar {:class-dir class-dir
           :jar-file jar-file
