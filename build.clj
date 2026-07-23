@@ -1,5 +1,7 @@
 (ns build
-  (:require [clojure.tools.build.api :as b]))
+  (:require [clojure.tools.build.api :as b]
+            [clojure.tools.build.tasks.process :as p]
+            [deps-deploy.deps-deploy :as dd]))
 
 (def lib 'com.s-exp/hako)
 (def version (format "1.0.0-alpha%s" (b/git-count-revs nil)))
@@ -7,6 +9,7 @@
 (def test-class-dir "target/test-classes")
 (def jar-file (format "target/%s-%s.jar" (name lib) version))
 (def basis (delay (b/create-basis {:project "deps.edn"})))
+(def target-dir "target")
 
 (defn clean [_]
   (b/delete {:path "target"}))
@@ -54,3 +57,35 @@
               :version version
               :jar-file jar-file
               :class-dir class-dir}))
+
+(defn deploy
+  [opts]
+  (dd/deploy {:artifact jar-file
+              :pom-file (format "%s/classes/META-INF/maven/%s/pom.xml"
+                                target-dir
+                                lib)
+              :installer :remote
+              :sign-releases? false})
+  opts)
+
+(defn- sh
+  [& cmds]
+  (doseq [cmd cmds]
+    (p/process {:command-args ["sh" "-c" cmd]})))
+
+(defn tag
+  [opts]
+  (sh
+   (format "git tag -a \"%s\" --no-sign -m \"Release %s\"" version version)
+   "git pull"
+   "git push --follow-tags")
+  opts)
+
+#_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
+(defn release
+  [opts]
+  (-> opts
+      clean
+      jar
+      deploy
+      tag))
