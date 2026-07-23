@@ -24,8 +24,20 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Mutable hako-format decoder over a MemorySegment. NOT thread-safe.
- * One-shot per message.
+ * Mutable hako-format decoder over a {@link MemorySegment}.
+ *
+ * <p>NOT thread-safe. If the source segment is backed by an
+ * {@code Arena.ofConfined()}, cross-thread access throws
+ * {@code WrongThreadException} at the FFM layer.
+ *
+ * <p>Reusable across many messages via {@link #reset(MemorySegment)}.
+ * The registered {@link ExtensionHandler} and array-map thresholds
+ * survive resets.
+ *
+ * <p>Static caches ({@code KW_CACHE}, {@code SYM_CACHE}) used when
+ * {@code :cache-idents? true} is set are {@link
+ * java.util.concurrent.ConcurrentHashMap} and safe for concurrent
+ * decode from multiple Reader instances.
  */
 public final class Reader {
 

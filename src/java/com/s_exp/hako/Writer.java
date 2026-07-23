@@ -22,8 +22,15 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Mutable hako-format encoder. Owns an internal Arena and grows the
- * MemorySegment by doubling on overflow. NOT thread-safe. One-shot.
+ * Mutable hako-format encoder. Owns an internal {@code Arena.ofConfined()}
+ * and grows the backing {@link MemorySegment} by doubling on overflow.
+ *
+ * <p>NOT thread-safe. The confined Arena pins the instance to its
+ * creating thread — any attempt to use a Writer from another thread
+ * throws {@code WrongThreadException} from the FFM layer.
+ *
+ * <p>Reusable across many messages via {@link #reset()}. The registered
+ * {@link UnknownHandler} and configuration fields survive resets.
  */
 public final class Writer implements AutoCloseable {
 
