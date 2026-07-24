@@ -76,7 +76,7 @@ Applicable majors are marked "size-tier" below.
 | 8     | 0x8_ | list       | size-tier: element count, then N values      |
 | 9     | 0x9_ | set        | size-tier: element count, then N values      |
 | 10    | 0xA_ | map        | size-tier: pair count, then N × (key, val)   |
-| 11    | 0xB_ | record     | reserved — record support lives under 0xE (see EXTENSIONS.md) |
+| 11    | 0xB_ | reserved   | unassigned                                   |
 | 12    | 0xC_ | symref     | size-tier: symbol-table index (see §3.4)     |
 | 13    | 0xD_ | bignumeric | low nibble = subtype (see §3.3.4)            |
 | 14    | 0xE_ | tagged     | extension namespace (see EXTENSIONS.md)      |

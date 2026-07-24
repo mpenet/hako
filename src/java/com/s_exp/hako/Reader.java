@@ -197,18 +197,33 @@ public final class Reader {
 
     private byte[] stringDecodeBuf = new byte[128];
 
+    private void ensureStringBuf(int n) {
+        if (stringDecodeBuf.length < n) {
+            stringDecodeBuf = new byte[Math.max(n, stringDecodeBuf.length * 2)];
+        }
+    }
+
     public String getString(int n) {
         if (n == 0) return "";
         need(n);
-        byte[] buf = stringDecodeBuf;
-        if (buf.length < n) {
-            buf = new byte[Math.max(n, buf.length * 2)];
-            stringDecodeBuf = buf;
-        }
-        MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, pos, buf, 0, n);
+        ensureStringBuf(n);
+        MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, pos, stringDecodeBuf, 0, n);
         pos += n;
-        return new String(buf, 0, n, StandardCharsets.UTF_8);
+        // For short strings (identifiers, tags, common human-typed
+        // values), a scalar ASCII prescan + ISO_8859_1 decode hits
+        // JDK's compact-string arraycopy without the UTF-8 state
+        // machine. Threshold-guarded — JDK's UTF-8 decoder uses SIMD
+        // intrinsics that beat a scalar scan on larger payloads.
+        if (n <= 64) {
+            boolean ascii = true;
+            for (int i = 0; i < n; i++) {
+                if (stringDecodeBuf[i] < 0) { ascii = false; break; }
+            }
+            if (ascii) return new String(stringDecodeBuf, 0, n, StandardCharsets.ISO_8859_1);
+        }
+        return new String(stringDecodeBuf, 0, n, StandardCharsets.UTF_8);
     }
+
 
     public long[] readLongArray(int n) {
         long bytes = (long) n * 8L;

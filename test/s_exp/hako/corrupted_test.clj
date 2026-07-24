@@ -49,8 +49,7 @@
       (is (thrown-with-msg? Exception #"unknown float subtype" (hako/decode bs))))))
 
 (deftest unknown-major
-  (testing "reserved major 0xB0 (record) currently unassigned to a Reader path"
-    ;; Major 0xB is reserved. Reader should throw a clear error.
+  (testing "reserved major 0xB0 currently unassigned to a Reader path"
     (let [bs (concat-bytes (envelope) (byte-array [0xB0]))]
       (is (thrown-with-msg? Exception #"unknown major" (hako/decode bs))))))
 
