@@ -23,7 +23,7 @@
   (^bytes [value] (encode value nil))
   (^bytes [value opts]
    (let [initial (long (or (:initial-size opts) 256))
-         wr (Writer. initial)]
+         wr (Writer/forHeap initial)]
      (try
        (.setWriteMeta wr (boolean (:preserve-meta opts)))
        (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
@@ -31,11 +31,7 @@
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (.writeAny wr value)
-       (let [seg (.finish wr)
-             n (.byteSize seg)
-             arr (byte-array n)]
-         (MemorySegment/copy seg ValueLayout/JAVA_BYTE 0 arr 0 n)
-         arr)
+       (.finishBytes wr)
        (finally (.close wr))))))
 
 (defn encode-to-segment
@@ -130,7 +126,7 @@
   (^bytes [values] (encode-many values nil))
   (^bytes [values opts]
    (let [initial (long (or (:initial-size opts) 4096))
-         wr (Writer. initial)]
+         wr (Writer/forHeap initial)]
      (try
        (.setWriteMeta wr (boolean (:preserve-meta opts)))
        (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
@@ -138,11 +134,7 @@
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (doseq [v values] (.writeAny wr v))
-       (let [seg (.finish wr)
-             n (.byteSize seg)
-             arr (byte-array n)]
-         (MemorySegment/copy seg ValueLayout/JAVA_BYTE 0 arr 0 n)
-         arr)
+       (.finishBytes wr)
        (finally (.close wr))))))
 
 (defn- ^MemorySegment ->segment [src]

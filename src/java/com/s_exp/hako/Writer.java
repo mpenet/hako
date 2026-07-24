@@ -36,7 +36,8 @@ public final class Writer implements AutoCloseable {
 
     private static final byte[] EMPTY = new byte[0];
 
-    private final Arena arena;
+    private final Arena arena;      // null when heap-backed
+    private byte[] heapBuf;         // non-null when heap-backed
     private MemorySegment seg;
     private long pos;
     private long cap;
@@ -46,10 +47,41 @@ public final class Writer implements AutoCloseable {
     private boolean packHomogeneous = false;
     private boolean coerceCustomComparator = false;
 
+    /** Arena-backed writer. Use for reusable writers and segment output. */
     public Writer(long initialSize) {
         if (initialSize < 1) initialSize = 64;
         this.arena = Arena.ofConfined();
+        this.heapBuf = null;
         this.seg = arena.allocate(initialSize, 1);
+        this.cap = initialSize;
+        this.pos = 0;
+    }
+
+    /**
+     * Heap-backed writer. Backing store is a {@code byte[]} wrapped as a
+     * {@link MemorySegment} via {@link MemorySegment#ofArray(byte[])}.
+     * {@link #finishBytes()} returns the encoded prefix as a
+     * {@code byte[]} with no off-heap → heap barrier — optimal for the
+     * one-shot {@code encode -> byte[]} path.
+     *
+     * <p>Uses a private no-op sentinel arena so the {@link AutoCloseable}
+     * contract still calls {@link #close} safely.
+     */
+    public static Writer forHeap(long initialSize) {
+        return new Writer(initialSize, true);
+    }
+
+    private Writer(long initialSize, boolean heap) {
+        if (initialSize < 1) initialSize = 64;
+        if (!heap) {
+            this.arena = Arena.ofConfined();
+            this.heapBuf = null;
+            this.seg = arena.allocate(initialSize, 1);
+        } else {
+            this.arena = null;
+            this.heapBuf = new byte[(int) initialSize];
+            this.seg = MemorySegment.ofArray(this.heapBuf);
+        }
         this.cap = initialSize;
         this.pos = 0;
     }
@@ -88,6 +120,19 @@ public final class Writer implements AutoCloseable {
     }
 
     /**
+     * Heap-backed only: return the encoded prefix as a fresh
+     * {@code byte[]}. Trims via {@link java.util.Arrays#copyOf(byte[],int)}
+     * to avoid handing out capacity slack. Throws for arena-backed writers.
+     */
+    public byte[] finishBytes() {
+        if (heapBuf == null) {
+            throw new IllegalStateException(
+                "finishBytes: writer is arena-backed, use finish() instead");
+        }
+        return java.util.Arrays.copyOf(heapBuf, (int) pos);
+    }
+
+    /**
      * Reset the writer for reuse. Cursor is set to 0, sym-table is
      * cleared, and per-message options are restored to defaults. The
      * underlying buffer and arena are kept.
@@ -108,23 +153,32 @@ public final class Writer implements AutoCloseable {
 
     @Override
     public void close() {
-        arena.close();
+        if (arena != null) arena.close();
     }
 
     private static final long MAX_CAP = 1L << 62;
+    private static final long MAX_HEAP_CAP = (long) Integer.MAX_VALUE - 8;
 
     private void ensure(long n) {
-        if (n < 0 || n > MAX_CAP - pos) {
+        long limit = (heapBuf != null) ? MAX_HEAP_CAP : MAX_CAP;
+        if (n < 0 || n > limit - pos) {
             throw new IllegalStateException(
-                "hako: write exceeds max buffer capacity (" + MAX_CAP + " bytes)");
+                "hako: write exceeds max buffer capacity (" + limit + " bytes)");
         }
         long need = pos + n;
         if (need <= cap) return;
         long newCap = cap;
         while (newCap < need) newCap <<= 1;
-        MemorySegment newSeg = arena.allocate(newCap, 1);
-        MemorySegment.copy(seg, 0L, newSeg, 0L, pos);
-        seg = newSeg;
+        if (heapBuf != null) {
+            if (newCap > MAX_HEAP_CAP) newCap = MAX_HEAP_CAP;
+            byte[] newBuf = java.util.Arrays.copyOf(heapBuf, (int) newCap);
+            heapBuf = newBuf;
+            seg = MemorySegment.ofArray(newBuf);
+        } else {
+            MemorySegment newSeg = arena.allocate(newCap, 1);
+            MemorySegment.copy(seg, 0L, newSeg, 0L, pos);
+            seg = newSeg;
+        }
         cap = newCap;
     }
 
