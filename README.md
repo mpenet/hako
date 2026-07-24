@@ -273,52 +273,82 @@ Multipliers below are **peer time ÷ hako time** — larger means hako is
 that much faster. Values below 1 mean the peer is faster; **bold**
 marks those.
 
-Two hako columns:
+Two hako call styles measured separately:
 
-- **hako** — one-shot `hako/encode` / `hako/decode`. Simple API, per-call
-  arena open/close.
+- **hako** — one-shot `hako/encode` / `hako/decode`. Simple API,
+  per-call arena open / close.
 - **hako⤾** — reusable Writer / Reader via `hako/writer` +
   `encode-into!` and `hako/reader` + `decode-into!`. Amortizes
   arena setup. Encode column includes the `MemorySegment` → `byte[]`
   copy so it's apples-to-apples with alloc'd `byte[]`.
 
-Decode columns use `{:cache-idents true}`. Multipliers computed
-against `hako⤾`.
+Decode uses `{:cache-idents true}` for both hako variants.
+Multipliers = **peer time ÷ hako time** — larger means hako faster.
+Values < 1 (bold) mean the peer is faster.
 
-### Encode
+### Encode — one-shot `hako/encode`
 
-| payload              |   hako | hako⤾  | vs nippy | vs nippy-fast | vs deed | vs transit |
-|----------------------|-------:|-------:|---------:|--------------:|--------:|-----------:|
-| `long-array-1k`      | 872 ns | **657 ns** | 30.0× | 29.8× | 17.0× | 33.7× |
-| `double-array-1k`    | 884 ns | **730 ns** | 30.8× | 15.1× | 14.9× | 33.8× |
-| `vec-of-longs` (1k)  | 11.4 µs| 11.2 µs    |  1.7× |  1.7× |  1.9× |  2.8× |
-| `nested-map` (50 kw) | 7.1 µs | 6.6 µs     |  1.5× |  1.6× |  2.4× |  5.7× |
-| `mixed`              | 366 ns | 306 ns     |  1.8× |  1.7× |  2.9× | 14.0× |
-| `small-map`          | 238 ns | 231 ns     |  1.3× |  1.1× |  2.7× | 16.4× |
-| `vec-of-strings`     | 1.9 µs | 1.7 µs     |  1.3× |  1.3× |  2.3× |  4.1× |
-| `string-10k`         | 1.6 µs | 1.2 µs     |  2.4× |  **0.9×** | 2.0× | 4.0× |
-| `string-100`         | 102 ns | **52 ns**  |  2.3× |  **1.4×** | 8.1× | 60.2× |
+| payload              |   hako | vs nippy | vs nippy-fast | vs deed | vs transit |
+|----------------------|-------:|---------:|--------------:|--------:|-----------:|
+| `long-array-1k`      | 872 ns |   22.6×  |        22.5×  |  12.8×  |     25.4×  |
+| `double-array-1k`    | 884 ns |   25.5×  |        12.5×  |  12.3×  |     27.9×  |
+| `vec-of-longs` (1k)  | 11.4 µs|    1.7×  |         1.7×  |   1.9×  |      2.7×  |
+| `nested-map` (50 kw) | 7.1 µs |    1.4×  |         1.4×  |   2.2×  |      5.2×  |
+| `mixed`              | 366 ns |    1.5×  |         1.4×  |   2.4×  |     11.7×  |
+| `small-map`          | 238 ns |    1.2×  |         1.1×  |   2.6×  |     16.0×  |
+| `vec-of-strings`     | 1.9 µs |    1.1×  |         1.1×  |   2.0×  |      3.5×  |
+| `string-10k`         | 1.6 µs |    1.7×  |     **0.7×**  |   1.4×  |      2.8×  |
+| `string-100`         | 102 ns |    1.2×  |     **0.7×**  |   4.2×  |     30.7×  |
 
-### Decode
+### Encode — reusable `hako⤾` (writer + `encode-into!`)
 
-| payload              |   hako | hako⤾  | vs nippy | vs nippy-fast | vs deed | vs transit |
-|----------------------|-------:|-------:|---------:|--------------:|--------:|-----------:|
-| `long-array-1k`      | 590 ns | 591 ns |   26.3× | 26.0× | 17.9× |  333× |
-| `double-array-1k`    | 578 ns | 592 ns |   21.3× | 13.7× | 18.4× |  298× |
-| `nested-map` (50 kw) | 6.7 µs | 6.3 µs |    2.4× |  2.4× |  4.1× |  9.8× |
-| `mixed`              | 412 ns | 390 ns |    1.8× |  1.7× |  3.4× | 11.7× |
-| `vec-of-strings`     | 2.7 µs | 2.7 µs |    1.6× |  1.3× |  3.1× |  6.2× |
-| `vec-of-longs` (1k)  |  11 µs |  11 µs |    1.2× |  1.2× |  2.3× | 17.9× |
-| `string-10k`         | 1.1 µs | **786 ns** | 4.8× | **1.4×** | 2.3× | 7.3× |
-| `small-map`          | 196 ns | 205 ns |    1.2× |  **0.9×** | 3.8× | 16.0× |
-| `string-100`         |  58 ns |  50 ns |    1.9× |  **0.9×** | 11.5× | 56.0× |
+| payload              |  hako⤾ | vs nippy | vs nippy-fast | vs deed | vs transit |
+|----------------------|-------:|---------:|--------------:|--------:|-----------:|
+| `long-array-1k`      | 657 ns |   30.0×  |        29.8×  |  17.0×  |     33.7×  |
+| `double-array-1k`    | 730 ns |   30.8×  |        15.1×  |  14.9×  |     33.8×  |
+| `vec-of-longs` (1k)  | 11.2 µs|    1.7×  |         1.7×  |   1.9×  |      2.8×  |
+| `nested-map` (50 kw) | 6.6 µs |    1.5×  |         1.6×  |   2.4×  |      5.7×  |
+| `mixed`              | 306 ns |    1.8×  |         1.7×  |   2.9×  |     14.0×  |
+| `small-map`          | 231 ns |    1.3×  |         1.1×  |   2.7×  |     16.4×  |
+| `vec-of-strings`     | 1.7 µs |    1.3×  |         1.3×  |   2.3×  |      4.1×  |
+| `string-10k`         | 1.2 µs |    2.4×  |     **0.9×**  |   2.0×  |      4.0×  |
+| `string-100`         |  52 ns |    2.3×  |         1.4×  |   8.1×  |     60.2×  |
 
-Hako's reusable path leads on **16 of 18 cells**. Two trailing:
-`string-100` decode (4 ns) and `small-map` decode (20 ns), both
-against `nippy-fast`'s intrinsic `readUTF` fast path. Matching would
-require a wire-format change (MUTF-8 or dedicated ASCII subtype) —
-see the ongoing exploration in the changelog. See
-[Performance](docs/performance.md) for the tradeoffs.
+### Decode — one-shot `hako/decode`
+
+| payload              |   hako | vs nippy | vs nippy-fast | vs deed | vs transit |
+|----------------------|-------:|---------:|--------------:|--------:|-----------:|
+| `long-array-1k`      | 590 ns |   26.4×  |        26.1×  |  17.9×  |      333×  |
+| `double-array-1k`    | 578 ns |   21.8×  |        14.0×  |  18.8×  |      305×  |
+| `nested-map` (50 kw) | 6.7 µs |    2.3×  |         2.2×  |   3.8×  |      9.2×  |
+| `mixed`              | 412 ns |    1.7×  |         1.6×  |   3.2×  |     11.0×  |
+| `vec-of-strings`     | 2.7 µs |    1.6×  |         1.4×  |   3.2×  |      6.3×  |
+| `vec-of-longs` (1k)  |  11 µs |    1.2×  |         1.2×  |   2.3×  |     17.5×  |
+| `string-10k`         | 1.1 µs |    3.4×  |         1.0×  |   1.6×  |      5.1×  |
+| `small-map`          | 196 ns |    1.2×  |     **0.9×**  |   4.0×  |     16.8×  |
+| `string-100`         |  58 ns |    1.7×  |     **0.8×**  |   9.9×  |     48.3×  |
+
+### Decode — reusable `hako⤾` (reader + `decode-into!`)
+
+| payload              |  hako⤾ | vs nippy | vs nippy-fast | vs deed | vs transit |
+|----------------------|-------:|---------:|--------------:|--------:|-----------:|
+| `long-array-1k`      | 591 ns |   26.3×  |        26.0×  |  17.9×  |      333×  |
+| `double-array-1k`    | 592 ns |   21.3×  |        13.7×  |  18.4×  |      298×  |
+| `nested-map` (50 kw) | 6.3 µs |    2.4×  |         2.4×  |   4.1×  |      9.8×  |
+| `mixed`              | 390 ns |    1.8×  |         1.7×  |   3.4×  |     11.7×  |
+| `vec-of-strings`     | 2.7 µs |    1.6×  |         1.3×  |   3.1×  |      6.2×  |
+| `vec-of-longs` (1k)  |  11 µs |    1.2×  |         1.2×  |   2.3×  |     17.9×  |
+| `string-10k`         | 786 ns |    4.8×  |         1.4×  |   2.3×  |      7.3×  |
+| `small-map`          | 205 ns |    1.2×  |     **0.9×**  |   3.8×  |     16.0×  |
+| `string-100`         |  50 ns |    1.9×  |     **0.9×**  |  11.5×  |     56.0×  |
+
+`hako⤾` leads on **16 of 18 cells**. Two remaining trailing (both
+vs `nippy-fast`, decode-only): `string-100` (4 ns gap) and
+`small-map` (20 ns gap). Nippy's intrinsic `readUTF` path is
+fundamentally faster on payloads smaller than a cache line;
+matching would require a wire-format change (MUTF-8 or dedicated
+ASCII subtype). See [Performance](docs/performance.md) for the
+tradeoffs.
 
 ### Records — 100 records in a vector
 
