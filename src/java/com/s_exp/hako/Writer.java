@@ -265,13 +265,23 @@ public final class Writer implements AutoCloseable {
         putF32(f);
     }
 
+    /**
+     * Worst-case tag + tier prefix (major byte + u64 tier payload).
+     * Pre-reserving `TAG_MAX + payloadLen` collapses the three separate
+     * `ensure()` calls in `putSizedTag` + `putBytes` into a single grow
+     * decision when the payload size is known up front.
+     */
+    private static final int TAG_MAX = 1 + 8;
+
     public void writeString(String s) {
         byte[] bs = s.getBytes(StandardCharsets.UTF_8);
+        ensure(TAG_MAX + bs.length);
         putSizedTag(Format.M_STRING, bs.length);
         putBytes(bs);
     }
 
     public void writeBytes(byte[] bs) {
+        ensure(TAG_MAX + bs.length);
         putSizedTag(Format.M_BYTES, bs.length);
         putBytes(bs);
     }
@@ -295,10 +305,10 @@ public final class Writer implements AutoCloseable {
 
     public void writeLongArray(long[] arr) {
         int n = arr.length;
+        long bytes = (long) n * 8L;
+        ensure(1 + TAG_MAX + bytes);
         putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_LONGS));
         putTierValue(n);
-        long bytes = (long) n * 8L;
-        ensure(bytes);
         MemorySegment.copy(arr, 0, seg, Format.LE_LONG, pos, n);
         pos += bytes;
     }
@@ -330,30 +340,30 @@ public final class Writer implements AutoCloseable {
 
     public void writeDoubleArray(double[] arr) {
         int n = arr.length;
+        long bytes = (long) n * 8L;
+        ensure(1 + TAG_MAX + bytes);
         putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_DOUBLES));
         putTierValue(n);
-        long bytes = (long) n * 8L;
-        ensure(bytes);
         MemorySegment.copy(arr, 0, seg, Format.LE_DOUBLE, pos, n);
         pos += bytes;
     }
 
     public void writeIntArray(int[] arr) {
         int n = arr.length;
+        long bytes = (long) n * 4L;
+        ensure(1 + TAG_MAX + bytes);
         putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_INTS));
         putTierValue(n);
-        long bytes = (long) n * 4L;
-        ensure(bytes);
         MemorySegment.copy(arr, 0, seg, Format.LE_INT, pos, n);
         pos += bytes;
     }
 
     public void writeFloatArray(float[] arr) {
         int n = arr.length;
+        long bytes = (long) n * 4L;
+        ensure(1 + TAG_MAX + bytes);
         putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_FLOATS));
         putTierValue(n);
-        long bytes = (long) n * 4L;
-        ensure(bytes);
         MemorySegment.copy(arr, 0, seg, Format.LE_FLOAT, pos, n);
         pos += bytes;
     }
@@ -398,6 +408,7 @@ public final class Writer implements AutoCloseable {
             throw new IllegalArgumentException("hako: identifier namespace exceeds 255 bytes");
         }
         int payloadLen = 1 + nsLen + nameBs.length;
+        ensure(TAG_MAX + payloadLen);
         putSizedTag(major, payloadLen);
         putByte(nsLen);
         if (nsLen > 0) putBytes(nsBs);
@@ -440,6 +451,7 @@ public final class Writer implements AutoCloseable {
 
     public void writeBigInteger(BigInteger x) {
         byte[] bs = x.toByteArray();
+        ensure(1 + TAG_MAX + bs.length);
         putByte(Format.tag(Format.M_BIGNUM, Format.BIG_BIGINT));
         putTierValue(bs.length);
         putBytes(bs);
@@ -447,6 +459,7 @@ public final class Writer implements AutoCloseable {
 
     public void writeBigDecimal(BigDecimal x) {
         byte[] bs = x.unscaledValue().toByteArray();
+        ensure(1 + 4 + TAG_MAX + bs.length);
         putByte(Format.tag(Format.M_BIGNUM, Format.BIG_BIGDEC));
         putI32(x.scale());
         putTierValue(bs.length);
@@ -456,6 +469,7 @@ public final class Writer implements AutoCloseable {
     public void writeRatio(Ratio r) {
         byte[] num = r.numerator.toByteArray();
         byte[] den = r.denominator.toByteArray();
+        ensure(1 + TAG_MAX + num.length + TAG_MAX + den.length);
         putByte(Format.tag(Format.M_BIGNUM, Format.BIG_RATIO));
         putTierValue(num.length);
         putBytes(num);
