@@ -167,6 +167,13 @@ public final class Writer implements AutoCloseable {
         pos += 8;
     }
 
+    /** Same wire layout as {@link #putU64}; distinguishes signed callers. */
+    public void putI64(long v) {
+        ensure(8);
+        seg.set(Format.LE_LONG, pos, v);
+        pos += 8;
+    }
+
     public void putF32(float v) {
         ensure(4);
         seg.set(Format.LE_FLOAT, pos, v);
@@ -287,7 +294,7 @@ public final class Writer implements AutoCloseable {
 
     public void writeInstant(long epochSec, int nano) {
         putByte(Format.tag(Format.M_SPEC, Format.SPEC_INST));
-        putU64(epochSec);
+        putI64(epochSec);
         putU32(nano);
     }
 
@@ -538,8 +545,17 @@ public final class Writer implements AutoCloseable {
 
     /**
      * Encode any supported value. Falls back to the registered
-     * `UnknownHandler` for records, sorted collections, queues,
+     * {@link UnknownHandler} for records, sorted collections, queues,
      * user-tagged types, or anything else outside the built-in set.
+     *
+     * <p><b>Seq / Iterable gotcha</b>: the wire format requires a
+     * count prefix, so any {@code ISeq} or non-{@code Collection}
+     * {@code Iterable} is first materialized into a temporary
+     * {@code ArrayList} to determine its length. For very long lazy
+     * seqs this defeats laziness and holds the whole sequence in
+     * memory during encode. Prefer a concrete {@code IPersistentVector}
+     * / {@code IPersistentList} / {@code IPersistentSet} when the
+     * length is known cheaply.
      */
     public void writeAny(Object v) {
         writeAnyInner(v, false);
