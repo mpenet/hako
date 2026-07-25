@@ -32,9 +32,11 @@ below let you trade off correctness / semantics for speed or size.
 
 ## Reusable Writer / Reader
 
-The biggest per-call cost of `(hako/encode value)` is opening +
-closing an `Arena.ofConfined()`. For high-throughput encode loops,
-amortize with `hako/writer`:
+`(hako/encode value)` pays two costs per call: opening + closing
+an `Arena.ofConfined()`, and copying the encoded segment into a
+fresh `byte[]`. For high-throughput encode loops that can consume
+a `MemorySegment` directly, `hako/writer` + `encode-into!` avoid
+both:
 
 ```clj
 (with-open [wr (hako/writer 4096)]
@@ -43,15 +45,23 @@ amortize with `hako/writer`:
       (consume! seg))))
 ```
 
-Rough numbers (100 000 encodes of a small map):
+Rough numbers per encode (see full bench in the README):
 
-- Per-call `hako/encode`: ~230 ns/op.
-- Reusable Writer: ~120 ns/op.
+| payload         | `hako/encode` → byte[] | `encode-into!` → segment | speedup |
+|-----------------|-----------------------:|-------------------------:|--------:|
+| small-map       |                 216 ns |                   209 ns |   ~1×   |
+| string-100      |                  97 ns |                    34 ns |   ~3×   |
+| long-array-1k   |                 912 ns |                   192 ns |  ~5×    |
+| string-10k      |                1.63 µs |                   745 ns |   ~2×   |
 
-Bigger wins for tiny payloads; negligible for anything over ~10 KB.
+The segment-out path wins big on prim arrays (no byte[] copy of
+the packed payload) and long strings (no growth-chain garbage).
+For tiny map payloads the arena setup cost is already dominated
+by per-value dispatch, so the win is negligible.
 
-Reader has an analogous `hako/reader` + `decode-into!`. See
-[Streaming](streaming.md).
+Reader has an analogous `hako/reader` + `decode-into!` (feed it a
+`MemorySegment` source to skip the `MemorySegment/ofArray` wrap).
+See [Streaming](streaming.md).
 
 ## Ident cache
 
@@ -114,16 +124,22 @@ Constraints — see [Arenas](arenas.md):
 
 ## When to use which encode fn
 
-Rough decision tree:
+Rough decision tree — best-performing to most-convenient:
 
-- **Just want a `byte[]`?** `hako/encode value` — simplest, no
-  ownership issues.
-- **Hot loop with many small encodes?** `with-open [wr
-  (hako/writer)]` — amortize arena setup.
+- **Consuming a `MemorySegment` in a hot loop?** `hako/writer` +
+  `hako/encode-into!` — no per-message allocation, no
+  `MemorySegment → byte[]` copy. **The fastest path.**
+- **Native-side consumer (FFM callee) with your own arena?**
+  `hako/encode-to-segment arena value` — output lives in your
+  arena.
+- **Hot loop that still needs `byte[]`?** `hako/writer` +
+  `hako/encode-into!` + one `MemorySegment.copy` per message — you
+  amortize arena setup but pay the final copy per call.
 - **Batch of related messages, all consumed together?**
-  `hako/encode-many values` — one envelope, shared sym-table.
-- **Native-side consumer (FFM callee)?** `hako/encode-to-segment
-  arena value` — output lives in your arena.
+  `hako/encode-many values` — one envelope, shared sym-table
+  across the batch (aggressive keyword dedup).
+- **Just want a `byte[]` and don't care about the last microsecond?**
+  `hako/encode value` — simplest, no ownership issues.
 
 Rough decision tree for decode:
 
@@ -141,13 +157,24 @@ edge cases where you should reach for a knob:
 ### Tiny payload, high throughput
 
 If you're encoding many tiny values per second (< 100 bytes each),
-use the reusable Writer even if the individual message will still
-be turned into a `byte[]` — the arena setup dominates.
+use the reusable Writer. If your consumer accepts a
+`MemorySegment` (e.g. writing directly to a socket / mmap / native
+callee), keep the whole loop off-heap:
 
 ```clj
 (with-open [wr (hako/writer 128)]
   (loop []
-    (when (poll-inbox!)
+    (when-let [message (poll-inbox!)]
+      (send! (hako/encode-into! wr message))
+      (recur))))
+```
+
+If the consumer insists on `byte[]`, pay the final copy per call:
+
+```clj
+(with-open [wr (hako/writer 128)]
+  (loop []
+    (when-let [message (poll-inbox!)]
       (let [seg (hako/encode-into! wr message)
             n (.byteSize seg)
             arr (byte-array n)]
@@ -156,6 +183,10 @@ be turned into a `byte[]` — the arena setup dominates.
         (send! arr))
       (recur))))
 ```
+
+The arena setup cost is what's amortized either way — the copy
+is a bounded ~50 ns per message that scales linearly with payload
+size.
 
 ### Predictable schema
 

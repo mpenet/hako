@@ -13,9 +13,10 @@ JVM-only Clojure workloads.
 - **Zero runtime dependencies** — only `org.clojure/clojure`. No
   compression libs, no transitive graph.
 - **Off-heap by default** — encode/decode operate on
-  `MemorySegment` via JDK 25 FFM. The reusable `Writer` path emits
-  output directly into a caller-owned segment with no per-message
-  `byte[]` allocation.
+  `MemorySegment` via JDK 25 FFM. The reusable `Writer` emits
+  output as a `MemorySegment` slice with no per-message `byte[]`
+  allocation; `encode-to-segment` writes into a caller-provided
+  arena.
 - **Low GC pressure** — arena-scoped writer buffers reused across
   messages; instance-field scratch for string decode; namespaced-
   keyword decode without composite-key allocation.
