@@ -353,19 +353,30 @@ smaller than a cache line — but doesn't win the cell. See
 
 ### Records — 100 records in a vector
 
-| metric | hako | nippy-fast | multiplier |
+5-field `Event` record (`{:id :ts :user :action :payload}`), 100
+instances in a vector. Reproduce with `clj -M:bench -m records-bench`.
+
+| metric | hako-seg | nippy-fast | multiplier |
 |---|---:|---:|---:|
-| encode  | **4.3 µs**  | 28 µs   | **6.4×** |
-| decode  | **12 µs**   | 72 µs   | **5.9×** |
-| size    | **706 B**   | 2473 B  | **3.5× smaller** |
+| encode  | **9.3 µs**  | 52 µs    | **5.6×** |
+| decode  | **26 µs**   | 72 µs    | **2.8×** |
+| size    | **2933 B**  | 10090 B  | **3.4× smaller** |
 
 Records are where the per-message symbol table pays off hardest.
 hako emits the record classname + field-key keywords once per
 message, then symrefs them (1 byte each) for the remaining 99
-records. Nippy re-emits every keyword payload. Result: **~6× faster
-encode/decode and ~3.5× smaller wire** for a homogeneous record
-vector — the win grows with vector length as the symref-vs-payload
-ratio widens. Registration required — see
+records. Nippy re-emits every keyword payload. Result: **~6×
+faster encode, ~3× faster decode, ~3.4× smaller wire** vs
+`nippy-fast`. The win grows with vector length as the symref-vs-
+payload ratio widens.
+
+Nippy's default `freeze` compresses the output with Snappy and
+comes in at **2173 B — smaller than hako's uncompressed 2933 B**,
+but at the cost of adding Snappy on the decode path (compression
+bomb vector). Wrap hako in transport-layer compression if the
+tradeoff makes sense for your setup.
+
+Registration required — see
 [Extensions §Records](docs/extensions.md#records).
 
 ### Encoded size
