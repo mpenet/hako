@@ -2,11 +2,9 @@
 [![Clojars Project](https://img.shields.io/clojars/v/com.s-exp/hako.svg)](https://clojars.org/com.s-exp/hako)
 
 
-**Schemaless, low-alloc binary serialization for Clojure.**
+**A Modern, Schemaless, Low-alloc Binary Serialization for Clojure.**
 
-Built on JDK 25 FFM (`MemorySegment`).
-Meant as a modern alternative to Nippy and Deed for
-JVM-only Clojure workloads.
+Built on JDK 25 FFM `MemorySegment`.
 
 ## Highlights
 
@@ -20,16 +18,26 @@ JVM-only Clojure workloads.
 - **Low GC pressure** — arena-scoped writer buffers reused across
   messages; instance-field scratch for string decode; namespaced-
   keyword decode without composite-key allocation.
+- **Tunable for zero-copy / low-alloc workloads** — reusable
+  `Writer` + `Reader` amortize arena setup, `encode-to-segment`
+  writes into your own arena, `:zero-copy` decode returns
+  `MemorySegment` slices for byte payloads, `:pack-homogeneous`
+  emits typed prim arrays. Pick knobs per call site.
 - **Java hot path** — top-level `writeAny` / `readAny` dispatch lives
   in Java, `instanceof` compiled to direct bytecode.
 - **Per-message symbol table** — repeated keywords / symbols /
   classnames dedup to a 1-byte symref.
+- **Secure by default** — safe to decode untrusted input. No
+  arbitrary class loading (record registry lookup, never
+  `Class.forName` on wire data), no `Serializable` fallback, no
+  decompression path (no compression-bomb vector), bounded reads,
+  per-message symbol table. See [Security](#security).
 - **Extensible** — records (Clojure + Java), user-tag registry with
   length-prefixed frames for forward-compatible reads.
 
 ## Status
 
-Pre-release (`0.1.0`). Wire format documented in [SPEC.md](SPEC.md).
+Pre-release, alpha. Wire format documented in [SPEC.md](SPEC.md).
 Extension registry in [EXTENSIONS.md](EXTENSIONS.md). Byte-level
 worked examples in [WIRE_EXAMPLES.md](WIRE_EXAMPLES.md).
 
@@ -44,11 +52,7 @@ worked examples in [WIRE_EXAMPLES.md](WIRE_EXAMPLES.md).
 
 ## Install
 
-```clj
-;; deps.edn
-{:deps {com.s-exp/hako {:mvn/version "0.1.0"}}
- :aliases {:run {:jvm-opts ["--enable-native-access=ALL-UNNAMED"]}}}
-```
+[![Clojars Project](https://img.shields.io/clojars/v/com.s-exp/hako.svg)](https://clojars.org/com.s-exp/hako)
 
 ## Quick start
 
@@ -232,9 +236,8 @@ hako is designed for decoding untrusted input safely. Key guarantees:
   ids throw by default; `:tolerate-unknown-tags true` returns an
   opaque `TaggedValue{:ext id :bytes segment-slice}` — never
   invokes unknown code.
-- **No Java `Serializable` fallback.** Unlike Nippy, hako has no
-  path to `ObjectInputStream`. Deserialization gadget chains are
-  not applicable.
+- **No Java `Serializable` fallback.** hako has no path to
+  `ObjectInputStream`. Deserialization gadget chains are not applicable.
 - **No decompression.** The wire format doesn't ship compressed
   payloads — no zip / gzip / snappy decompression on the read path,
   so no compression-bomb amplification vector.
@@ -341,10 +344,10 @@ wrapped via `MemorySegment/ofArray` internally) and reused
 | `nested-map` (50 kw) |         6.46 µs |          6.97 µs  | 14.73 µs |   13.74 µs | 25.98 µs |  59.07 µs|
 | `vec-of-longs` (1k)  |        11.45 µs |         11.45 µs  | 12.05 µs |   11.85 µs | 25.52 µs | 199.87 µs|
 
-Only `nippy-fast` on `string-100` decode edges hako⤾ (2 ns gap).
-Nippy's `readUTF` intrinsic is unbeatable on payloads smaller than a
-cache line — matching would require a wire-format change to MUTF-8.
-See [Performance](docs/performance.md) for the tradeoffs.
+Only `nippy-fast` on `string-100` decode edges hako⤾ (2 ns gap, noise
+basically). Nippy's `readUTF` intrinsic is unbeatable on payloads smaller than a
+cache line — matching would require a wire-format change to MUTF-8.  See
+[Performance](docs/performance.md) for the tradeoffs.
 
 ### Records — 100 records in a vector
 
@@ -409,7 +412,7 @@ Other:
 clj -T:build javac       # compile Java sources → target/classes
 clj -T:build javac-test  # compile Java test-support classes
 clj -M:test              # run full test suite (currently 425 assertions)
-clj -M:bench -m bench    # criterium benchmarks vs peers
+clj -M:bench -m bench    # criterium benchmarks vs peers (~15min)
 clj -M:bench -m quick    # 5-payload triage bench (~40s)
 clj -T:build jar         # build the release jar
 ```
