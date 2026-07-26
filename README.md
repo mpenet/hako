@@ -2,7 +2,7 @@
 [![Clojars Project](https://img.shields.io/clojars/v/com.s-exp/hako.svg)](https://clojars.org/com.s-exp/hako)
 
 
-**A Modern, Schemaless, Low-alloc Binary Serialization for Clojure.**
+**A Modern, Schemaless, Low-alloc Binary Serialization Library for Clojure.**
 
 Built on JDK 25 FFM `MemorySegment`.
 
