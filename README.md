@@ -264,21 +264,24 @@ hako is designed for decoding untrusted input safely. Key guarantees:
 Criterium quick-bench, JDK 25, `-server -Xmx4g`, direct-linking on.
 Single machine — reproduce with `clj -M:bench -m bench`.
 
-hako's core value proposition is **off-heap encoding into a caller-
-owned `MemorySegment`** with minimal Java-heap allocation. Four call
-styles are measured:
+hako's core value proposition is **off-heap encoding into a
+`MemorySegment`** with minimal Java-heap allocation. Four call
+styles are measured; the `-reuse` variants share a single Writer
+(and its arena-backed buffer) across many messages, so the arena
+setup cost is amortized instead of paid per call:
 
-- **hako⤾ →seg** — reused `Writer` emitting a `MemorySegment` slice
-  (`hako/encode-into!`). No `byte[]` allocation per call; the
-  writer's arena buffer is reused across messages. **The
-  differentiator — this is what the design is optimized for.**
-- **hako⤾ →byte[]** — same, but with a trailing
+- **hako-seg** — long-lived `Writer` emitting a
+  `MemorySegment` slice per message (`hako/encode-into!`). No
+  `byte[]` allocation per call, no arena open/close per call.
+  **The differentiator — this is what the design is optimized
+  for.**
+- **hako-seg→byte[]** — same long-lived Writer, plus a trailing
   `MemorySegment → byte[]` copy for callers stuck on `byte[]` APIs.
 - **hako →byte[]** — one-shot `hako/encode`. Fresh confined arena +
   final off-heap → heap copy per call. Convenient, less optimal.
-- **hako encode-to-seg** — one-shot `hako/encode-to-segment` with a
-  caller-provided `Arena`. Arena setup cost per call, but the result
-  stays off-heap.
+- **hako-arena** — one-shot `hako/encode-to-segment` with a
+  caller-provided `Arena`. Arena setup cost per call, but the
+  result stays off-heap in the caller's arena.
 
 Peers (JVM-only, on-heap output): `nippy` (default `freeze`,
 compression + checksums), `nippy-fast` (`fast-freeze`, no
@@ -288,10 +291,10 @@ niche, reference only).
 
 ### Encode — hako call-style ladder
 
-Absolute times per call. `hako⤾ →seg` is the ceiling; other columns
+Absolute times per call. `hako-seg` is the ceiling; other columns
 show what each additional convenience costs.
 
-| payload              | hako⤾ →seg | hako⤾ →byte[] | hako →byte[] | encode-to-seg |
+| payload              | hako-seg | hako-seg→byte[] | hako →byte[] | hako-arena |
 |----------------------|-----------:|--------------:|-------------:|--------------:|
 | `long-array-1k`      |     192 ns |        723 ns |       912 ns |        665 ns |
 | `double-array-1k`    |     178 ns |        698 ns |       845 ns |        636 ns |
@@ -307,9 +310,9 @@ The segment-out path wins by 3.5–5× on prim arrays, 2× on
 long strings, and matches the byte[] paths on collection payloads
 (where per-value dispatch dominates the arena/copy costs).
 
-### Encode — hako⤾ →seg vs peers
+### Encode — hako-seg vs peers
 
-| payload              | hako⤾ →seg | nippy    | nippy-fast | deed     | transit  |
+| payload              | hako-seg | nippy    | nippy-fast | deed     | transit  |
 |----------------------|-----------:|---------:|-----------:|---------:|---------:|
 | `long-array-1k`      |     192 ns |  18.5 µs |    18.6 µs |  11.2 µs |  21.9 µs |
 | `double-array-1k`    |     178 ns |  22.6 µs |    10.9 µs |  10.9 µs |  24.6 µs |
@@ -321,7 +324,7 @@ long strings, and matches the byte[] paths on collection payloads
 | `nested-map` (50 kw) |     5.54 µs|  11.13 µs|    11.40 µs|  16.27 µs|  36.89 µs|
 | `vec-of-longs` (1k)  |     7.51 µs|  17.47 µs|    17.18 µs|  21.54 µs|  31.07 µs|
 
-hako⤾ →seg leads every cell — including `string-10k` where the
+hako-seg leads every cell — including `string-10k` where the
 byte[]-output paths lose to `nippy-fast`.
 
 ### Decode
@@ -331,7 +334,7 @@ wrapped via `MemorySegment/ofArray` internally) and reused
 `hako/decode-into!` (segment source, no wrap per call). Both take
 `{:cache-idents true}`.
 
-| payload              | hako⤾ (seg src) | hako (byte[] src) | nippy    | nippy-fast | deed     | transit  |
+| payload              | hako-seg | hako (byte[] src) | nippy    | nippy-fast | deed     | transit  |
 |----------------------|----------------:|------------------:|---------:|-----------:|---------:|---------:|
 | `long-array-1k`      |          589 ns |            602 ns |  12.1 µs |    12.0 µs |  10.8 µs |   200 µs |
 | `double-array-1k`    |          561 ns |            591 ns |  12.1 µs |     8.1 µs |  10.8 µs |   176 µs |
@@ -343,7 +346,7 @@ wrapped via `MemorySegment/ofArray` internally) and reused
 | `nested-map` (50 kw) |         6.46 µs |          6.97 µs  | 14.73 µs |   13.74 µs | 25.98 µs |  59.07 µs|
 | `vec-of-longs` (1k)  |        11.45 µs |         11.45 µs  | 12.05 µs |   11.85 µs | 25.52 µs | 199.87 µs|
 
-hako⤾ leads every decode cell. `nippy-fast` stays within 2 ns on
+hako-seg leads every decode cell. `nippy-fast` stays within 2 ns on
 `string-100` — its `readUTF` intrinsic is hard to beat on payloads
 smaller than a cache line — but doesn't win the cell. See
 [Performance](docs/performance.md) for the tradeoffs.
@@ -355,6 +358,15 @@ smaller than a cache line — but doesn't win the cell. See
 | encode  | **4.3 µs**  | 28 µs   | **6.4×** |
 | decode  | **12 µs**   | 72 µs   | **5.9×** |
 | size    | **706 B**   | 2473 B  | **3.5× smaller** |
+
+Records are where the per-message symbol table pays off hardest.
+hako emits the record classname + field-key keywords once per
+message, then symrefs them (1 byte each) for the remaining 99
+records. Nippy re-emits every keyword payload. Result: **~6× faster
+encode/decode and ~3.5× smaller wire** for a homogeneous record
+vector — the win grows with vector length as the symref-vs-payload
+ratio widens. Registration required — see
+[Extensions §Records](docs/extensions.md#records).
 
 ### Encoded size
 
@@ -369,6 +381,24 @@ smaller than a cache line — but doesn't win the cell. See
 | `small-map`           |     37 B   |    39 B |    35 B |   101 B | **34 B** |
 | `string-100`          |    107 B   |   106 B | **102 B**|  140 B |   108 B  |
 | `string-10k`          |   10008 B  |**61 B** | 10003 B | 10040 B | 10008 B  |
+
+Two patterns dominate:
+
+- **Keyword-heavy structures**: hako wins big — `nested-map`
+  (50 kw) is **~55% smaller** than nippy. Per-message symbol table
+  compresses repeat idents to 1-byte symrefs; peers re-emit the
+  full ident each time.
+- **Homogeneous numeric arrays**: nippy wins via varint on
+  `long-array-1k` / `double-array-1k`. hako uses fixed 8-byte
+  layout — same as `MemorySegment.copy` intrinsics, no per-element
+  encode/decode branching on the hot path. The wire loss buys the
+  perf win visible in the encode/decode tables above.
+- **Large repetitive strings**: nippy compresses `string-10k` to
+  61 bytes via Snappy. hako intentionally does not compress —
+  wrap in your transport-layer compression if you need it. Keeps
+  the decode path free of decompression bomb amplification.
+
+Everywhere else, hako is within a few bytes of the best peer.
 
 ### Reproduce
 
