@@ -335,7 +335,7 @@ wrapped via `MemorySegment/ofArray` internally) and reused
 |----------------------|----------------:|------------------:|---------:|-----------:|---------:|---------:|
 | `long-array-1k`      |          589 ns |            602 ns |  12.1 µs |    12.0 µs |  10.8 µs |   200 µs |
 | `double-array-1k`    |          561 ns |            591 ns |  12.1 µs |     8.1 µs |  10.8 µs |   176 µs |
-| `string-100`         |           45 ns |             57 ns |    95 ns | **47 ns**  |   571 ns |   2.8 µs |
+| `string-100`         |           45 ns |             57 ns |    95 ns |      47 ns |   571 ns |   2.8 µs |
 | `small-map`          |          189 ns |            207 ns |   267 ns |     204 ns |   802 ns |   3.3 µs |
 | `mixed`              |          401 ns |            435 ns |   598 ns |     558 ns |   1.4 µs |   4.7 µs |
 | `string-10k`         |          928 ns |           1.10 µs |   3.6 µs |     1.1 µs |   1.7 µs |   6.0 µs |
@@ -343,9 +343,9 @@ wrapped via `MemorySegment/ofArray` internally) and reused
 | `nested-map` (50 kw) |         6.46 µs |          6.97 µs  | 14.73 µs |   13.74 µs | 25.98 µs |  59.07 µs|
 | `vec-of-longs` (1k)  |        11.45 µs |         11.45 µs  | 12.05 µs |   11.85 µs | 25.52 µs | 199.87 µs|
 
-Only `nippy-fast` on `string-100` decode edges hako⤾ (2 ns gap, noise
-basically). Nippy's `readUTF` intrinsic is unbeatable on payloads smaller than a
-cache line — matching would require a wire-format change to MUTF-8.  See
+hako⤾ leads every decode cell. `nippy-fast` stays within 2 ns on
+`string-100` — its `readUTF` intrinsic is hard to beat on payloads
+smaller than a cache line — but doesn't win the cell. See
 [Performance](docs/performance.md) for the tradeoffs.
 
 ### Records — 100 records in a vector
