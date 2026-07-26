@@ -351,6 +351,53 @@ hako-seg leads every decode cell. `nippy-fast` stays within 2 ns on
 smaller than a cache line — but doesn't win the cell. See
 [Performance](docs/performance.md) for the tradeoffs.
 
+### Allocation
+
+Bytes allocated per operation, measured via
+`ThreadMXBean.getThreadAllocatedBytes` over 100 000 iterations
+post-warmup. Lower = less GC pressure on the consuming system.
+Reproduce with `clj -M:bench -m alloc-bench`.
+
+**Encode**
+
+| payload              | hako-seg | nippy-fast | vs nippy-fast |
+|----------------------|---------:|-----------:|--------------:|
+| `long-array-1k`      |   **40** |     37888  | **947× less** |
+| `string-10k`         | **10056**|     20152  | **2.0× less** |
+| `ns-map` (50 kw)     | **10568**|     21784  | **2.1× less** |
+| `string-100`         |  **160** |       352  | **2.2× less** |
+| `small-map`          |  **256** |       320  | **1.25× less**|
+| `mixed`              |  **432** |       536  | **1.24× less**|
+| `vec-of-strings`     | **2440** |      3472  | **1.42× less**|
+| `nested-map` (50 kw) |    11464 |  **10000** | 1.15× more    |
+
+**Decode** (measured with `{:cache-idents true}`)
+
+| payload              | hako-seg | nippy-fast | vs nippy-fast |
+|----------------------|---------:|-----------:|--------------:|
+| `long-array-1k`      | **8088** |     70976  | **8.8× less** |
+| `nested-map` (50 kw) |**10800** |     40176  | **3.7× less** |
+| `small-map`          |  **384** |       848  | **2.2× less** |
+| `string-10k`         |**10112** |     20192  | **2.0× less** |
+| `string-100`         |  **216** |       384  | **1.8× less** |
+| `mixed`              | **1608** |      2344  | **1.5× less** |
+| `ns-map` (50 kw)     |**16840** |     24800  | **1.5× less** |
+| `vec-of-strings`     | **5808** |      8256  | **1.4× less** |
+
+`hako-seg` wins allocation on **every decode cell** and **7 of 8
+encode cells**. The one loss (`nested-map` encode) trails
+`nippy-fast` by 14% — cost of interning 50 unique keywords into
+the per-message symbol table. On `long-array-1k` encode the ratio
+is **947×** — hako-seg does bulk `MemorySegment.copy` with no
+intermediate heap buffer, while nippy varint-encodes each long
+into a growing `byte[]`.
+
+This allocation delta is the tail-latency story — invisible to
+mean-of-loop timing benches. Under load (e.g. 100k msg/s), a
+30 KB/op reduction per encode is 3 GB/s less young-gen churn on
+the consuming JVM. See [Performance](docs/performance.md) for
+tuning notes.
+
 ### Records — 100 records in a vector
 
 5-field `Event` record (`{:id :ts :user :action :payload}`), 100

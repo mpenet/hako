@@ -4,7 +4,8 @@
   but the same signal: how many bytes each encode call allocates.
 
   Run: clj -M:bench -m alloc-bench [payload ...]"
-  (:require [s-exp.hako :as hako])
+  (:require [s-exp.hako :as hako]
+            [taoensso.nippy :as nippy])
   (:import (com.s_exp.hako Writer)
            (com.sun.management ThreadMXBean)
            (java.lang.foreign MemorySegment ValueLayout)
@@ -64,14 +65,20 @@
       (println "===" label "===")
       (let [wr (hako/writer 4096)
             enc (hako/encode v)
-            rd (hako/reader enc)]
+            rd (hako/reader enc)
+            nippy-enc (nippy/freeze v)
+            nippy-fast-enc (nippy/fast-freeze v)]
         (try
-          (profile "hako enc"       (fn [] (hako/encode v))              n)
-          (profile "hako⤾ enc→byt"  (fn [] (seg->bytes
-                                            (hako/encode-into! wr v)))    n)
-          (profile "hako⤾ enc-seg"  (fn [] (hako/encode-into! wr v))     n)
-          (profile "hako dec"       (fn [] (hako/decode enc
-                                                        {:cache-idents true}))       n)
-          (profile "hako⤾ dec"      (fn [] (hako/decode-into! rd enc
-                                                              {:cache-idents true}))       n)
+          (profile "hako enc"        (fn [] (hako/encode v))              n)
+          (profile "hako-seg enc→byt" (fn [] (seg->bytes
+                                              (hako/encode-into! wr v)))   n)
+          (profile "hako-seg enc"    (fn [] (hako/encode-into! wr v))     n)
+          (profile "nippy enc"       (fn [] (nippy/freeze v))             n)
+          (profile "nippy-fast enc"  (fn [] (nippy/fast-freeze v))        n)
+          (profile "hako dec"        (fn [] (hako/decode enc
+                                                         {:cache-idents true}))       n)
+          (profile "hako-seg dec"    (fn [] (hako/decode-into! rd enc
+                                                               {:cache-idents true})) n)
+          (profile "nippy dec"       (fn [] (nippy/thaw nippy-enc))       n)
+          (profile "nippy-fast dec"  (fn [] (nippy/fast-thaw nippy-fast-enc)) n)
           (finally (.close wr)))))))
