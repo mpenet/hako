@@ -22,8 +22,8 @@ Built on JDK 25 FFM `MemorySegment`.
   writes into your own arena, `:zero-copy` decode returns
   `MemorySegment` slices for byte payloads, `:pack-homogeneous`
   emits typed prim arrays. Pick knobs per call site.
-- **Java hot path** — top-level dispatch lives in Java, `instanceof` compiled to
-  direct bytecode.
+- **Java hot path** — the heavy lifting (per-value dispatch,
+  primitive reads/writes, container walking) runs in Java.
 - **Per-message symbol table** — repeated keywords / symbols /
   classnames dedup to a 1-byte symref.
 - **Secure by default** — safe to decode untrusted input. No
