@@ -13,8 +13,7 @@ Built on JDK 25 FFM `MemorySegment`.
 - **Off-heap by default** — encode/decode operate on
   `MemorySegment` via JDK 25 FFM. The reusable `Writer` emits
   output as a `MemorySegment` slice with no per-message `byte[]`
-  allocation; `encode-to-segment` writes into a caller-provided
-  arena.
+  allocation.
 - **Low GC pressure** — arena-scoped writer buffers reused across
   messages; instance-field scratch for string decode; namespaced-
   keyword decode without composite-key allocation.
@@ -23,8 +22,8 @@ Built on JDK 25 FFM `MemorySegment`.
   writes into your own arena, `:zero-copy` decode returns
   `MemorySegment` slices for byte payloads, `:pack-homogeneous`
   emits typed prim arrays. Pick knobs per call site.
-- **Java hot path** — top-level `writeAny` / `readAny` dispatch lives
-  in Java, `instanceof` compiled to direct bytecode.
+- **Java hot path** — top-level dispatch lives in Java, `instanceof` compiled to
+  direct bytecode.
 - **Per-message symbol table** — repeated keywords / symbols /
   classnames dedup to a 1-byte symref.
 - **Secure by default** — safe to decode untrusted input. No
