@@ -8,31 +8,20 @@ Built on JDK 25 FFM `MemorySegment`.
 
 ## Highlights
 
-- **Zero runtime dependencies** — only `org.clojure/clojure`. No
-  compression libs, no transitive graph.
-- **Off-heap by default** — encode/decode operate on
-  `MemorySegment` via JDK 25 FFM. The reusable `Writer` emits
-  output as a `MemorySegment` slice with no per-message `byte[]`
-  allocation.
-- **Low GC pressure** — arena-scoped writer buffers reused across
-  messages; instance-field scratch for string decode; namespaced-
-  keyword decode without composite-key allocation.
-- **Tunable for zero-copy / low-alloc workloads** — reusable
-  `Writer` + `Reader` amortize arena setup, `encode-to-segment`
-  writes into your own arena, `:zero-copy` decode returns
-  `MemorySegment` slices for byte payloads, `:pack-homogeneous`
-  emits typed prim arrays. Pick knobs per call site.
-- **Java hot path** — the heavy lifting (per-value dispatch,
-  primitive reads/writes, container walking) runs in Java.
-- **Per-message symbol table** — repeated keywords / symbols /
-  classnames dedup to a 1-byte symref.
-- **Secure by default** — safe to decode untrusted input. No
-  arbitrary class loading (record registry lookup, never
-  `Class.forName` on wire data), no `Serializable` fallback, no
-  decompression path (no compression-bomb vector), bounded reads,
-  per-message symbol table. See [Security](#security).
-- **Extensible** — records (Clojure + Java), user-tag registry with
-  length-prefixed frames for forward-compatible reads.
+- **Zero runtime dependencies** — only `org.clojure/clojure`.
+- **Off-heap by default** — `MemorySegment` via JDK 25 FFM.
+- **Low GC pressure** — arena buffer reused across messages,
+  segment-out path allocates ~zero per call.
+- **Tunable** — reusable Writer/Reader, caller-owned arenas,
+  zero-copy byte decode, prim-array packing.
+- **Java hot path** — per-value dispatch and primitive writes in
+  Java
+- **Per-message symbol table** — repeated keywords / symbols
+  dedup to a 1-byte symref.
+- **Secure by default** — no class loading from wire, no
+  `Serializable`, no decompression. See [Security](#security).
+- **Extensible** — records (Clojure + Java), user-tag registry
+  with length-prefixed frames for forward-compatible reads.
 
 ## Status
 
