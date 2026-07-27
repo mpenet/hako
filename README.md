@@ -2,9 +2,11 @@
 [![Clojars Project](https://img.shields.io/clojars/v/com.s-exp/hako.svg)](https://clojars.org/com.s-exp/hako)
 
 
-**A Modern, Schemaless, Low-alloc Binary Serialization Library for Clojure.**
+**A Modern, high-performance, Low-alloc Binary Serialization Library for Clojure.**
 
-Built on JDK 25 FFM `MemorySegment`.
+Built on JDK 25 FFM `MemorySegment`. Quite possibly the fastest —
+and lowest-allocation — binary serializer for Clojure on the JVM
+today. See [Benchmarks](#benchmarks).
 
 ## Highlights
 
@@ -25,9 +27,7 @@ Built on JDK 25 FFM `MemorySegment`.
 
 ## Status
 
-Pre-release, alpha. Wire format documented in [SPEC.md](SPEC.md).
-Extension registry in [EXTENSIONS.md](EXTENSIONS.md). Byte-level
-worked examples in [WIRE_EXAMPLES.md](WIRE_EXAMPLES.md).
+Pre-release, alpha.
 
 ## Requirements
 
@@ -198,7 +198,8 @@ Opt-in per encode:
 
 ## Wire format
 
-Byte-level spec in [SPEC.md](SPEC.md). Worked examples in
+Byte-level spec in [SPEC.md](SPEC.md). Extension registry in
+[EXTENSIONS.md](EXTENSIONS.md). Byte-by-byte worked examples in
 [WIRE_EXAMPLES.md](WIRE_EXAMPLES.md). Highlights:
 
 - 5-byte envelope `<magic 'HAKO'><version 0>`.
