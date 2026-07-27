@@ -266,22 +266,24 @@ Single machine — reproduce with `clj -M:bench -m bench`.
 
 hako's core value proposition is **off-heap encoding into a
 `MemorySegment`** with minimal Java-heap allocation. Four call
-styles are measured; the `-reuse` variants share a single Writer
-(and its arena-backed buffer) across many messages, so the arena
-setup cost is amortized instead of paid per call:
+styles are measured; `encode-into!` uses a long-lived reusable
+`Writer` (arena buffer amortized across messages), the others open
+a fresh arena per call:
 
-- **hako-seg** — long-lived `Writer` emitting a
-  `MemorySegment` slice per message (`hako/encode-into!`). No
-  `byte[]` allocation per call, no arena open/close per call.
+- **`encode-into!` → seg** — reusable `Writer`, emits a
+  `MemorySegment` slice per message. No `byte[]` allocation per
+  call, no arena open/close per call.
   **The differentiator — this is what the design is optimized
   for.**
-- **hako-seg→byte[]** — same long-lived Writer, plus a trailing
-  `MemorySegment → byte[]` copy for callers stuck on `byte[]` APIs.
-- **hako →byte[]** — one-shot `hako/encode`. Fresh confined arena +
-  final off-heap → heap copy per call. Convenient, less optimal.
-- **hako-arena** — one-shot `hako/encode-to-segment` with a
-  caller-provided `Arena`. Arena setup cost per call, but the
-  result stays off-heap in the caller's arena.
+- **`encode-into!` → byte[]** — same reusable Writer, then a
+  trailing `MemorySegment → byte[]` copy for callers stuck on
+  `byte[]` APIs.
+- **`encode` → byte[]** — one-shot `hako/encode`. Fresh confined
+  arena + final off-heap → heap copy per call. Convenient, less
+  optimal.
+- **`encode-to-segment` → seg** — one-shot with a caller-provided
+  `Arena`. Arena setup cost per call, but the result stays
+  off-heap in the caller's arena.
 
 Peers (JVM-only, on-heap output): `nippy` (default `freeze`,
 compression + checksums), `nippy-fast` (`fast-freeze`, no
@@ -291,64 +293,64 @@ niche, reference only).
 
 ### Encode — hako call-style ladder
 
-Absolute times per call. `hako-seg` is the ceiling; other columns
-show what each additional convenience costs.
+Absolute times per call. `encode-into!` → seg is the ceiling; other
+columns show what each additional convenience costs.
 
-| payload              | hako-seg | hako-seg→byte[] | hako →byte[] | hako-arena |
-|----------------------|-----------:|--------------:|-------------:|--------------:|
-| `long-array-1k`      |     192 ns |        723 ns |       912 ns |        665 ns |
-| `double-array-1k`    |     178 ns |        698 ns |       845 ns |        636 ns |
-| `string-100`         |      34 ns |         45 ns |        97 ns |        132 ns |
-| `small-map`          |     209 ns |        213 ns |       216 ns |        251 ns |
-| `mixed`              |     285 ns |        350 ns |       371 ns |        436 ns |
-| `string-10k`         |    745 ns  |       1146 ns |      1628 ns |       1197 ns |
-| `vec-of-strings`     |     1.35 µs|       1.38 µs |      1.65 µs |       1.69 µs |
-| `nested-map` (50 kw) |     5.54 µs|       5.55 µs |      5.90 µs |       6.22 µs |
-| `vec-of-longs` (1k)  |     7.51 µs|       7.60 µs |      8.18 µs |       8.21 µs |
+| payload              | `encode-into!` →seg | `encode-into!` →byte[] | `encode` →byte[] | `encode-to-segment` →seg |
+|----------------------|--------------------:|-----------------------:|-----------------:|-------------------------:|
+| `long-array-1k`      |              192 ns |                 723 ns |           912 ns |                   665 ns |
+| `double-array-1k`    |              178 ns |                 698 ns |           845 ns |                   636 ns |
+| `string-100`         |               34 ns |                  45 ns |            97 ns |                   132 ns |
+| `small-map`          |              209 ns |                 213 ns |           216 ns |                   251 ns |
+| `mixed`              |              285 ns |                 350 ns |           371 ns |                   436 ns |
+| `string-10k`         |              745 ns |                1146 ns |          1628 ns |                  1197 ns |
+| `vec-of-strings`     |             1.35 µs |                1.38 µs |          1.65 µs |                  1.69 µs |
+| `nested-map` (50 kw) |             5.54 µs |                5.55 µs |          5.90 µs |                  6.22 µs |
+| `vec-of-longs` (1k)  |             7.51 µs |                7.60 µs |          8.18 µs |                  8.21 µs |
 
 The segment-out path wins by 3.5–5× on prim arrays, 2× on
 long strings, and matches the byte[] paths on collection payloads
 (where per-value dispatch dominates the arena/copy costs).
 
-### Encode — hako-seg vs peers
+### Encode — `encode-into!` →seg vs peers
 
-| payload              | hako-seg | nippy    | nippy-fast | deed     | transit  |
-|----------------------|-----------:|---------:|-----------:|---------:|---------:|
-| `long-array-1k`      |     192 ns |  18.5 µs |    18.6 µs |  11.2 µs |  21.9 µs |
-| `double-array-1k`    |     178 ns |  22.6 µs |    10.9 µs |  10.9 µs |  24.6 µs |
-| `string-100`         |      34 ns |   123 ns |      73 ns |   418 ns |   3.0 µs |
-| `small-map`          |     209 ns |   318 ns |     252 ns |   641 ns |   3.8 µs |
-| `mixed`              |     285 ns |   528 ns |     493 ns |   871 ns |   4.2 µs |
-| `string-10k`         |    745 ns  |   2.8 µs |     1.1 µs |   2.2 µs |   4.5 µs |
-| `vec-of-strings`     |     1.35 µs|   2.23 µs|     2.22 µs|   3.89 µs|   7.09 µs|
-| `nested-map` (50 kw) |     5.54 µs|  11.13 µs|    11.40 µs|  16.27 µs|  36.89 µs|
-| `vec-of-longs` (1k)  |     7.51 µs|  17.47 µs|    17.18 µs|  21.54 µs|  31.07 µs|
+| payload              | `encode-into!` →seg | nippy    | nippy-fast | deed     | transit  |
+|----------------------|--------------------:|---------:|-----------:|---------:|---------:|
+| `long-array-1k`      |              192 ns |  18.5 µs |    18.6 µs |  11.2 µs |  21.9 µs |
+| `double-array-1k`    |              178 ns |  22.6 µs |    10.9 µs |  10.9 µs |  24.6 µs |
+| `string-100`         |               34 ns |   123 ns |      73 ns |   418 ns |   3.0 µs |
+| `small-map`          |              209 ns |   318 ns |     252 ns |   641 ns |   3.8 µs |
+| `mixed`              |              285 ns |   528 ns |     493 ns |   871 ns |   4.2 µs |
+| `string-10k`         |              745 ns |   2.8 µs |     1.1 µs |   2.2 µs |   4.5 µs |
+| `vec-of-strings`     |             1.35 µs |  2.23 µs |    2.22 µs |  3.89 µs |  7.09 µs |
+| `nested-map` (50 kw) |             5.54 µs | 11.13 µs |   11.40 µs | 16.27 µs | 36.89 µs |
+| `vec-of-longs` (1k)  |             7.51 µs | 17.47 µs |   17.18 µs | 21.54 µs | 31.07 µs |
 
-hako-seg leads every cell — including `string-10k` where the
-byte[]-output paths lose to `nippy-fast`.
+`encode-into!` →seg leads every cell — including `string-10k`
+where the byte[]-output paths lose to `nippy-fast`.
 
 ### Decode
 
-Decode has two hako variants — one-shot `hako/decode` (byte[] source,
-wrapped via `MemorySegment/ofArray` internally) and reused
+Decode has two hako variants — one-shot `hako/decode` (byte[]
+source, wrapped via `MemorySegment/ofArray` internally) and reused
 `hako/decode-into!` (segment source, no wrap per call). Both take
 `{:cache-idents true}`.
 
-| payload              | hako-seg | hako (byte[] src) | nippy    | nippy-fast | deed     | transit  |
-|----------------------|----------------:|------------------:|---------:|-----------:|---------:|---------:|
-| `long-array-1k`      |          589 ns |            602 ns |  12.1 µs |    12.0 µs |  10.8 µs |   200 µs |
-| `double-array-1k`    |          561 ns |            591 ns |  12.1 µs |     8.1 µs |  10.8 µs |   176 µs |
-| `string-100`         |           45 ns |             57 ns |    95 ns |      47 ns |   571 ns |   2.8 µs |
-| `small-map`          |          189 ns |            207 ns |   267 ns |     204 ns |   802 ns |   3.3 µs |
-| `mixed`              |          401 ns |            435 ns |   598 ns |     558 ns |   1.4 µs |   4.7 µs |
-| `string-10k`         |          928 ns |           1.10 µs |   3.6 µs |     1.1 µs |   1.7 µs |   6.0 µs |
-| `vec-of-strings`     |         2.77 µs |          2.83 µs  |  4.09 µs |    3.97 µs |  8.25 µs |  16.80 µs|
-| `nested-map` (50 kw) |         6.46 µs |          6.97 µs  | 14.73 µs |   13.74 µs | 25.98 µs |  59.07 µs|
-| `vec-of-longs` (1k)  |        11.45 µs |         11.45 µs  | 12.05 µs |   11.85 µs | 25.52 µs | 199.87 µs|
+| payload              | `decode-into!` →seg src | `decode` →byte[] src | nippy    | nippy-fast | deed     | transit  |
+|----------------------|------------------------:|---------------------:|---------:|-----------:|---------:|---------:|
+| `long-array-1k`      |                  589 ns |               602 ns |  12.1 µs |    12.0 µs |  10.8 µs |   200 µs |
+| `double-array-1k`    |                  561 ns |               591 ns |  12.1 µs |     8.1 µs |  10.8 µs |   176 µs |
+| `string-100`         |                   45 ns |                57 ns |    95 ns |      47 ns |   571 ns |   2.8 µs |
+| `small-map`          |                  189 ns |               207 ns |   267 ns |     204 ns |   802 ns |   3.3 µs |
+| `mixed`              |                  401 ns |               435 ns |   598 ns |     558 ns |   1.4 µs |   4.7 µs |
+| `string-10k`         |                  928 ns |              1.10 µs |   3.6 µs |     1.1 µs |   1.7 µs |   6.0 µs |
+| `vec-of-strings`     |                 2.77 µs |              2.83 µs |  4.09 µs |    3.97 µs |  8.25 µs |  16.80 µs|
+| `nested-map` (50 kw) |                 6.46 µs |              6.97 µs | 14.73 µs |   13.74 µs | 25.98 µs |  59.07 µs|
+| `vec-of-longs` (1k)  |                11.45 µs |             11.45 µs | 12.05 µs |   11.85 µs | 25.52 µs | 199.87 µs|
 
-hako-seg leads every decode cell. `nippy-fast` stays within 2 ns on
-`string-100` — its `readUTF` intrinsic is hard to beat on payloads
-smaller than a cache line — but doesn't win the cell. See
+`decode-into!` →seg src leads every cell. `nippy-fast` stays within
+2 ns on `string-100` — its `readUTF` intrinsic is hard to beat on
+payloads smaller than a cache line — but doesn't win the cell. See
 [Performance](docs/performance.md) for the tradeoffs.
 
 ### Allocation
@@ -358,39 +360,40 @@ Bytes allocated per operation, measured via
 post-warmup. Lower = less GC pressure on the consuming system.
 Reproduce with `clj -M:bench -m alloc-bench`.
 
-**Encode**
+**Encode** — `encode-into!` →seg vs `nippy/fast-freeze`
 
-| payload              | hako-seg | nippy-fast | vs nippy-fast |
-|----------------------|---------:|-----------:|--------------:|
-| `long-array-1k`      |   **40** |     37888  | **947× less** |
-| `string-10k`         | **10056**|     20152  | **2.0× less** |
-| `ns-map` (50 kw)     | **10568**|     21784  | **2.1× less** |
-| `string-100`         |  **160** |       352  | **2.2× less** |
-| `small-map`          |  **256** |       320  | **1.25× less**|
-| `mixed`              |  **432** |       536  | **1.24× less**|
-| `vec-of-strings`     | **2440** |      3472  | **1.42× less**|
-| `nested-map` (50 kw) |    11464 |  **10000** | 1.15× more    |
+| payload              | `encode-into!` →seg | nippy-fast | vs nippy-fast |
+|----------------------|--------------------:|-----------:|--------------:|
+| `long-array-1k`      |              **40** |     37888  | **947× less** |
+| `string-10k`         |           **10056** |     20152  | **2.0× less** |
+| `ns-map` (50 kw)     |           **10568** |     21784  | **2.1× less** |
+| `string-100`         |             **160** |       352  | **2.2× less** |
+| `small-map`          |             **256** |       320  | **1.25× less**|
+| `mixed`              |             **432** |       536  | **1.24× less**|
+| `vec-of-strings`     |            **2440** |      3472  | **1.42× less**|
+| `nested-map` (50 kw) |               11464 |  **10000** | 1.15× more    |
 
-**Decode** (measured with `{:cache-idents true}`)
+**Decode** — `decode-into!` →seg src vs `nippy/fast-thaw`
+(measured with `{:cache-idents true}`)
 
-| payload              | hako-seg | nippy-fast | vs nippy-fast |
-|----------------------|---------:|-----------:|--------------:|
-| `long-array-1k`      | **8088** |     70976  | **8.8× less** |
-| `nested-map` (50 kw) |**10800** |     40176  | **3.7× less** |
-| `small-map`          |  **384** |       848  | **2.2× less** |
-| `string-10k`         |**10112** |     20192  | **2.0× less** |
-| `string-100`         |  **216** |       384  | **1.8× less** |
-| `mixed`              | **1608** |      2344  | **1.5× less** |
-| `ns-map` (50 kw)     |**16840** |     24800  | **1.5× less** |
-| `vec-of-strings`     | **5808** |      8256  | **1.4× less** |
+| payload              | `decode-into!` →seg src | nippy-fast | vs nippy-fast |
+|----------------------|------------------------:|-----------:|--------------:|
+| `long-array-1k`      |                **8088** |     70976  | **8.8× less** |
+| `nested-map` (50 kw) |               **10800** |     40176  | **3.7× less** |
+| `small-map`          |                 **384** |       848  | **2.2× less** |
+| `string-10k`         |               **10112** |     20192  | **2.0× less** |
+| `string-100`         |                 **216** |       384  | **1.8× less** |
+| `mixed`              |                **1608** |      2344  | **1.5× less** |
+| `ns-map` (50 kw)     |               **16840** |     24800  | **1.5× less** |
+| `vec-of-strings`     |                **5808** |      8256  | **1.4× less** |
 
-`hako-seg` wins allocation on **every decode cell** and **7 of 8
-encode cells**. The one loss (`nested-map` encode) trails
+`encode-into!` →seg wins allocation on **every decode cell** and
+**7 of 8 encode cells**. The one loss (`nested-map` encode) trails
 `nippy-fast` by 14% — cost of interning 50 unique keywords into
 the per-message symbol table. On `long-array-1k` encode the ratio
-is **947×** — hako-seg does bulk `MemorySegment.copy` with no
-intermediate heap buffer, while nippy varint-encodes each long
-into a growing `byte[]`.
+is **947×** — bulk `MemorySegment.copy` with no intermediate heap
+buffer, while nippy varint-encodes each long into a growing
+`byte[]`.
 
 This allocation delta is the tail-latency story — invisible to
 mean-of-loop timing benches. Under load (e.g. 100k msg/s), a
@@ -403,7 +406,7 @@ tuning notes.
 5-field `Event` record (`{:id :ts :user :action :payload}`), 100
 instances in a vector. Reproduce with `clj -M:bench -m records-bench`.
 
-| metric | hako-seg | nippy-fast | multiplier |
+| metric | `encode-into!` / `decode-into!` | nippy-fast | multiplier |
 |---|---:|---:|---:|
 | encode  | **9.3 µs**  | 52 µs    | **5.6×** |
 | decode  | **26 µs**   | 72 µs    | **2.8×** |
