@@ -29,6 +29,7 @@
             :javac-opts ["--release" "25"]}))
 
 (defn jar [_]
+  (javac nil)
   (b/write-pom {:class-dir class-dir
                 :lib lib
                 :version version
