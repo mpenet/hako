@@ -67,16 +67,15 @@
                       {:class (.getName klass) :field-count n}))))
 
 (defn- java-record-accessor-mhs
-  "MethodHandle per Java record accessor. Adapted so each returns
-  Object instead of the declared primitive type — the invoke path
-  auto-boxes without an extra reflection hop."
+  "MethodHandle per Java record accessor. Adapted to `(Object) -> Object`
+  so the Writer can use `invokeExact` with no Object[] wrapper alloc."
   [^Class klass]
   (let [lookup (MethodHandles/lookup)]
     (mapv (fn [^java.lang.reflect.RecordComponent rc]
             (let [raw (.unreflect lookup (.getAccessor rc))
                   generic (MethodType/methodType Object
                                                  ^"[Ljava.lang.Class;"
-                                                 (into-array Class [klass]))]
+                                                 (into-array Class [Object]))]
               (MethodHandles/explicitCastArguments raw generic)))
           (.getRecordComponents klass))))
 

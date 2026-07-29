@@ -477,11 +477,10 @@ public final class Writer implements AutoCloseable {
         writeInterned(Format.M_SYM, info.className(), null, info.className());
         putTierValue(info.fieldCount());
         if (info.javaRecord()) {
-            Object[] singleArg = { v };
             for (MethodHandle mh : info.accessorMHs()) {
                 Object fieldVal;
                 try {
-                    fieldVal = mh.invokeWithArguments(singleArg);
+                    fieldVal = (Object) mh.invokeExact(v);
                 } catch (Throwable t) {
                     throw new IllegalStateException("hako: record accessor failed", t);
                 }
