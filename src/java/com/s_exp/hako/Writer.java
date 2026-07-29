@@ -1,6 +1,7 @@
 package com.s_exp.hako;
 
 import clojure.lang.BigInt;
+import clojure.lang.Counted;
 import clojure.lang.IObj;
 import clojure.lang.IPersistentMap;
 import clojure.lang.IPersistentSet;
@@ -571,9 +572,15 @@ public final class Writer implements AutoCloseable {
     }
 
     private void writeSeqAny(ISeq s) {
-        // Materialize once to know count. Normalize via .seq() so empty
-        // seqs / lists yield null (skip the loop) rather than looping
-        // once with a null element.
+        // Counted → single-pass with known count (PersistentList, etc.).
+        // Lazy/chunked seqs: fall through to materialize — a second walk
+        // over LazySeq/ChunkedSeq re-allocates wrapper Cons per chunk.
+        if (s instanceof Counted) {
+            int n = ((Counted) s).count();
+            writeListHeader(n);
+            for (ISeq cur = s.seq(); cur != null; cur = cur.next()) writeAny(cur.first());
+            return;
+        }
         java.util.ArrayList<Object> tmp = new java.util.ArrayList<>();
         for (ISeq cur = s.seq(); cur != null; cur = cur.next()) tmp.add(cur.first());
         int n = tmp.size();
@@ -582,6 +589,12 @@ public final class Writer implements AutoCloseable {
     }
 
     private void writeIterableAny(Iterable<?> it) {
+        if (it instanceof java.util.Collection) {
+            java.util.Collection<?> c = (java.util.Collection<?>) it;
+            writeListHeader(c.size());
+            for (Object x : c) writeAny(x);
+            return;
+        }
         java.util.ArrayList<Object> tmp = new java.util.ArrayList<>();
         for (Object x : it) tmp.add(x);
         int n = tmp.size();
