@@ -17,7 +17,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.UUID;
 
@@ -40,8 +40,53 @@ public final class Writer implements AutoCloseable {
     private MemorySegment seg;
     private long pos;
     private long cap;
-    private final HashMap<Object, Long> symTable = new HashMap<>();
+    // Per-message symbol table — open-addressing hash on primitive
+    // arrays. `symKeys` holds Keyword/Symbol/String instances; `symIdxs`
+    // holds their assigned symref indices. Allocated once at
+    // construction and reused across `reset()`, so a warmed Writer
+    // does zero allocation on repeat encodes of the same shape.
+    // Replaces the previous `HashMap<Object, Long>` which allocated
+    // ~72 B per unique intern (HashMap$Node + autoboxed Long).
+    private Object[] symKeys = new Object[8];
+    private long[] symIdxs = new long[8];
+    private int symMask = 7;
+    private int symSize = 0;
     private long nextSymIdx = 0;
+
+    private long symTableGet(Object key) {
+        int i = key.hashCode() & symMask;
+        while (true) {
+            Object k = symKeys[i];
+            if (k == null) return -1L;
+            if (k == key || k.equals(key)) return symIdxs[i];
+            i = (i + 1) & symMask;
+        }
+    }
+
+    private void symTablePut(Object key, long idx) {
+        if ((symSize + 1) << 2 > (symKeys.length * 3)) {
+            int newCap = symKeys.length << 1;
+            Object[] oldKeys = symKeys;
+            long[] oldIdxs = symIdxs;
+            symKeys = new Object[newCap];
+            symIdxs = new long[newCap];
+            symMask = newCap - 1;
+            symSize = 0;
+            for (int j = 0; j < oldKeys.length; j++) {
+                Object k = oldKeys[j];
+                if (k != null) symTablePutRaw(k, oldIdxs[j]);
+            }
+        }
+        symTablePutRaw(key, idx);
+    }
+
+    private void symTablePutRaw(Object key, long idx) {
+        int i = key.hashCode() & symMask;
+        while (symKeys[i] != null) i = (i + 1) & symMask;
+        symKeys[i] = key;
+        symIdxs[i] = idx;
+        symSize++;
+    }
     private boolean writeMeta = false;
     private boolean packHomogeneous = false;
     private boolean coerceCustomComparator = false;
@@ -98,7 +143,10 @@ public final class Writer implements AutoCloseable {
      */
     public void reset() {
         pos = 0;
-        symTable.clear();
+        if (symSize > 0) {
+            Arrays.fill(symKeys, null);
+            symSize = 0;
+        }
         nextSymIdx = 0;
         writeMeta = false;
         packHomogeneous = false;
@@ -396,8 +444,8 @@ public final class Writer implements AutoCloseable {
      * @param name local name (never null)
      */
     public void writeInterned(int major, Object internKey, String ns, String name) {
-        Long idx = symTable.get(internKey);
-        if (idx != null) {
+        long idx = symTableGet(internKey);
+        if (idx != -1L) {
             putSizedTag(Format.M_SYMREF, idx);
             return;
         }
@@ -412,7 +460,7 @@ public final class Writer implements AutoCloseable {
         putByte(nsLen);
         if (nsLen > 0) putBytes(nsBs);
         putBytes(nameBs);
-        symTable.put(internKey, nextSymIdx++);
+        symTablePut(internKey, nextSymIdx++);
     }
 
     // -- Records -----------------------------------------------------------

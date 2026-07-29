@@ -12,3 +12,4 @@ pom.xml.asc
 .nrepl-port
 .rebel_readline_history
 *.class
+/.clj-kondo/
