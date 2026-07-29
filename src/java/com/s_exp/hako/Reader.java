@@ -295,6 +295,23 @@ public final class Reader {
     private static final ConcurrentHashMap<String, Keyword> KW_CACHE = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Symbol> SYM_CACHE = new ConcurrentHashMap<>();
 
+    /**
+     * Pre-populate the global keyword cache used by
+     * {@code :cache-idents true} decode. Callers with a known
+     * vocabulary (schemas, protocol tags) can warm the cache at
+     * startup to avoid the first-decode intern cost. Only affects
+     * non-namespaced keywords — namespaced keywords bypass this cache
+     * and go through {@code Keyword.intern} directly.
+     */
+    public static void primeKwCache(String name, Keyword kw) {
+        KW_CACHE.putIfAbsent(name, kw);
+    }
+
+    /** Symbol counterpart of {@link #primeKwCache}. */
+    public static void primeSymCache(String name, Symbol sym) {
+        SYM_CACHE.putIfAbsent(name, sym);
+    }
+
     // -- Ident payload parsing ---------------------------------------------
 
     // Scratch fields for readIdentPayload → readKeyword/readSymbol.
