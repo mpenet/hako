@@ -419,15 +419,24 @@ public final class Reader {
     private Object readMap(int tierCode) {
         int n = (int) checkCount(readTierPayload(tierCode), "map count");
         if (n == 0) return PersistentArrayMap.EMPTY;
+        // Definitely-hashmap: skip the Object[n*2] intermediate and
+        // read straight into a transient PersistentHashMap.
+        if (n > arrayMapKwThreshold) {
+            clojure.lang.ITransientMap t = (clojure.lang.ITransientMap) PersistentHashMap.EMPTY.asTransient();
+            for (int i = 0; i < n; i++) {
+                Object k = readAny();
+                Object val = readAny();
+                t = t.assoc(k, val);
+            }
+            return t.persistent();
+        }
         Object[] arr = new Object[n * 2];
         for (int i = 0; i < n; i++) {
             arr[2 * i] = readAny();
             arr[2 * i + 1] = readAny();
         }
         if (n <= arrayMapThreshold) return new PersistentArrayMap(arr);
-        if (n <= arrayMapKwThreshold && allKeywordKeys(arr, n)) {
-            return new PersistentArrayMap(arr);
-        }
+        if (allKeywordKeys(arr, n)) return new PersistentArrayMap(arr);
         return PersistentHashMap.create(arr);
     }
 

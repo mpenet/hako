@@ -1,7 +1,10 @@
 package com.s_exp.hako;
 
+import clojure.lang.AFn;
 import clojure.lang.BigInt;
 import clojure.lang.Counted;
+import clojure.lang.IFn;
+import clojure.lang.IKVReduce;
 import clojure.lang.IObj;
 import clojure.lang.IPersistentMap;
 import clojure.lang.IPersistentSet;
@@ -554,8 +557,21 @@ public final class Writer implements AutoCloseable {
         return target;
     }
 
+    private static final IFn KV_WRITER = new AFn() {
+        @Override public Object invoke(Object w, Object k, Object v) {
+            Writer wr = (Writer) w;
+            wr.writeAny(k);
+            wr.writeAny(v);
+            return wr;
+        }
+    };
+
     private void writeMapAny(IPersistentMap m) {
         writeMapHeader(m.count());
+        if (m instanceof IKVReduce) {
+            ((IKVReduce) m).kvreduce(KV_WRITER, this);
+            return;
+        }
         java.util.Iterator<?> it = clojure.lang.RT.iter(m);
         while (it.hasNext()) {
             Map.Entry<?, ?> e = (Map.Entry<?, ?>) it.next();
