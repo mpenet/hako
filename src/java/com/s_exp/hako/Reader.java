@@ -10,6 +10,7 @@ import clojure.lang.PersistentList;
 import clojure.lang.PersistentQueue;
 import clojure.lang.PersistentTreeMap;
 import clojure.lang.PersistentTreeSet;
+import clojure.lang.LazilyPersistentVector;
 import clojure.lang.PersistentVector;
 import clojure.lang.Symbol;
 import java.lang.foreign.MemorySegment;
@@ -394,6 +395,14 @@ public final class Reader {
     private Object readVector(int tierCode) {
         int n = (int) checkCount(readTierPayload(tierCode), "vector count");
         if (n == 0) return PersistentVector.EMPTY;
+        // n <= 32 fits in a single PersistentVector tail: `createOwning`
+        // wraps the Object[] directly (zero extra alloc) instead of building
+        // the transient node structure.
+        if (n <= 32) {
+            Object[] arr = new Object[n];
+            for (int i = 0; i < n; i++) arr[i] = readAny();
+            return LazilyPersistentVector.createOwning(arr);
+        }
         clojure.lang.ITransientCollection t = PersistentVector.EMPTY.asTransient();
         for (int i = 0; i < n; i++) t = t.conj(readAny());
         return t.persistent();
