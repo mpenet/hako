@@ -369,12 +369,12 @@ Reproduce with `clj -M:bench -m alloc-bench`.
 | payload              | `decode-into!` →seg src | nippy-fast | vs nippy-fast |
 |----------------------|------------------------:|-----------:|--------------:|
 | `long-array-1k`      |                **8088** |     70976  | **8.8× less** |
-| `nested-map` (50 kw) |               **10384** |     41360  | **4.0× less** |
-| `small-map`          |                 **384** |       848  | **2.2× less** |
+| `nested-map` (50 kw) |               **10384** |     40176  | **3.9× less** |
+| `small-map`          |                 **384** |       768  | **2.0× less** |
 | `string-10k`         |               **10112** |     20192  | **2.0× less** |
 | `string-100`         |                 **216** |       384  | **1.8× less** |
-| `mixed`              |                **1608** |      2344  | **1.5× less** |
-| `ns-map` (50 kw)     |               **16464** |     24784  | **1.5× less** |
+| `mixed`              |                 **888** |      2096  | **2.4× less** |
+| `ns-map` (50 kw)     |               **16464** |     24800  | **1.5× less** |
 | `vec-of-strings`     |                **5808** |      8336  | **1.4× less** |
 
 `encode-into!` →seg wins allocation on **every measured cell** —
