@@ -3,7 +3,8 @@
   (:require [s-exp.hako.reader :as r]
             [s-exp.hako.writer :as w])
   (:import (com.s_exp.hako Reader Writer)
-           (java.lang.foreign Arena MemorySegment ValueLayout)))
+           (java.lang.foreign Arena MemorySegment ValueLayout)
+           (java.nio ByteBuffer)))
 
 (set! *warn-on-reflection* true)
 
@@ -85,6 +86,28 @@
    (.writeEnvelope wr)
    (.writeAny wr value)
    (.finish wr)))
+
+(defn encode-into-buffer!
+  "Encode `value` with `wr` and copy the bytes directly into `dst`
+  (a byte[] or ByteBuffer). Skips the MemorySegment.asSlice wrapper that
+  `encode-into!` returns — zero-alloc for heap-backed destinations.
+
+  For byte[] destinations, writes starting at `off` (default 0).
+  For ByteBuffer destinations, advances position by the byte count written.
+  Returns the number of bytes written."
+  (^long [^Writer wr dst value] (encode-into-buffer! wr dst value nil))
+  (^long [^Writer wr dst value opts]
+   (.reset wr)
+   (.setWriteMeta wr (boolean (:preserve-meta opts)))
+   (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
+   (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator opts)))
+   (.writeEnvelope wr)
+   (.writeAny wr value)
+   (cond
+     (bytes? dst)                (.copyTo wr ^bytes dst (int (or (:offset opts) 0)))
+     (instance? ByteBuffer dst)  (.copyTo wr ^ByteBuffer dst)
+     :else                       (throw (ex-info "hako: unsupported destination"
+                                                 {:type (class dst)})))))
 
 (defn reader
   "Allocate a reusable Reader bound to `src` (byte[] or MemorySegment).

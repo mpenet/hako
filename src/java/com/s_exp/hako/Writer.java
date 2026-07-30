@@ -19,11 +19,13 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Mutable hako-format encoder. Owns an internal {@code Arena.ofConfined()}
@@ -134,6 +136,37 @@ public final class Writer implements AutoCloseable {
 
     public MemorySegment finish() {
         return seg.asSlice(0, pos);
+    }
+
+    /**
+     * Zero-alloc copy of the encoded region into `dst[off..]`. Returns
+     * the byte count written. Skips the {@code asSlice} wrapper that
+     * {@link #finish()} allocates — hand-off for callers who own their
+     * output buffer.
+     */
+    public int copyTo(byte[] dst, int off) {
+        int n = (int) pos;
+        MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, 0, dst, off, n);
+        return n;
+    }
+
+    /**
+     * Zero-alloc copy of the encoded region into `dst`. Advances
+     * {@code dst.position()} by the byte count written; returns that
+     * count. Heap-backed ByteBuffers take a direct byte[] copy; direct
+     * ByteBuffers copy via a {@code MemorySegment.ofBuffer} wrapper.
+     */
+    public int copyTo(ByteBuffer dst) {
+        int n = (int) pos;
+        int dstPos = dst.position();
+        if (dst.hasArray()) {
+            MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, 0,
+                               dst.array(), dst.arrayOffset() + dstPos, n);
+        } else {
+            MemorySegment.copy(seg, 0, MemorySegment.ofBuffer(dst), dstPos, n);
+        }
+        dst.position(dstPos + n);
+        return n;
     }
 
     /**
@@ -453,18 +486,36 @@ public final class Writer implements AutoCloseable {
             putSizedTag(Format.M_SYMREF, idx);
             return;
         }
-        byte[] nsBs = (ns == null || ns.isEmpty()) ? EMPTY : ns.getBytes(StandardCharsets.UTF_8);
+        byte[] payload = IDENT_BYTES_CACHE.get(internKey);
+        if (payload == null) {
+            payload = encodeIdentPayload(ns, name);
+            IDENT_BYTES_CACHE.putIfAbsent(internKey, payload);
+        }
+        putSizedTag(major, payload.length);
+        putBytes(payload);
+        symTablePut(internKey, nextSymIdx++);
+    }
+
+    /**
+     * Global cache of pre-encoded ident payload bytes keyed by Keyword /
+     * Symbol / String instance. Skips the repeat UTF-8 encoding cost on
+     * every unique first-in-message ident write. Bounded by the app's
+     * ident vocabulary (typically thousands, not millions).
+     */
+    private static final ConcurrentHashMap<Object, byte[]> IDENT_BYTES_CACHE = new ConcurrentHashMap<>();
+
+    private static byte[] encodeIdentPayload(String ns, String name) {
+        byte[] nsBs   = (ns == null || ns.isEmpty()) ? EMPTY : ns.getBytes(StandardCharsets.UTF_8);
         byte[] nameBs = name.getBytes(StandardCharsets.UTF_8);
         int nsLen = nsBs.length;
         if (nsLen > 0xFF) {
             throw new IllegalArgumentException("hako: identifier namespace exceeds 255 bytes");
         }
-        int payloadLen = 1 + nsLen + nameBs.length;
-        putSizedTag(major, payloadLen);
-        putByte(nsLen);
-        if (nsLen > 0) putBytes(nsBs);
-        putBytes(nameBs);
-        symTablePut(internKey, nextSymIdx++);
+        byte[] out = new byte[1 + nsLen + nameBs.length];
+        out[0] = (byte) nsLen;
+        System.arraycopy(nsBs, 0, out, 1, nsLen);
+        System.arraycopy(nameBs, 0, out, 1 + nsLen, nameBs.length);
+        return out;
     }
 
     // -- Records -----------------------------------------------------------
