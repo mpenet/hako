@@ -163,7 +163,7 @@ E5 03 01 00 ...  02 00 ...  03 00 ...
 Registration:
 
 ```clj
-(ext/register-user-tag! 0x10000001 URI
+(ext/register-user-tag! 1 URI  ; app-local id → wire id 0x10000001
   (fn write [w u] (.writeString w (str u)))
   (fn read  [r] ...))
 ```

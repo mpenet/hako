@@ -112,7 +112,7 @@ For value types that don't fit built-in types, don't extend
 (import '(java.net URI))
 
 (ext/register-user-tag!
- 0x10000001                       ; u32 id — see ranges below
+ 1                                ; app-local id (shifted to 0x10000001 on wire)
  URI                              ; class to dispatch on
  (fn write [w u]                  ; 2-arity: writer, value
    (.writeString w (str u)))
@@ -173,7 +173,7 @@ Payload bytes stay valid until the source segment closes; see
 
 ### ID ranges
 
-Reserved space (from [../EXTENSIONS.md](../EXTENSIONS.md) §E.2):
+Reserved u32 wire space (from [../EXTENSIONS.md](../EXTENSIONS.md) §E.2):
 
 | Range                       | Purpose                          |
 |-----------------------------|----------------------------------|
@@ -181,7 +181,10 @@ Reserved space (from [../EXTENSIONS.md](../EXTENSIONS.md) §E.2):
 | `0x00010000` – `0x0FFFFFFF` | Public third-party (PR to hako). |
 | `0x10000000` – `0xFFFFFFFF` | Private / application-defined.   |
 
-For internal application use, always pick from the private range.
+**`register-user-tag!` accepts a small app-local id (`0..0x0FFFFFFF`)
+and shifts it into the private range** — callers write `1`, `2`, ...
+without picking hex constants. For cross-app coordination on a full
+u32 wire id, use `register-user-tag-raw!`.
 
 ## Metadata
 

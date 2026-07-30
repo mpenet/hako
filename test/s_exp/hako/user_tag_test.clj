@@ -7,7 +7,8 @@
            (java.lang.foreign MemorySegment)
            (java.net URI)))
 
-(def uri-tag-id 0x10000001)
+(def uri-tag-id 1)
+(def uri-wire-id 0x10000001)  ; register-user-tag! shifts uri-tag-id into private range
 
 (ext/register-user-tag!
  uri-tag-id
@@ -45,5 +46,5 @@
       (with-redefs [ext/user-tag-reader (constantly nil)]
         (let [r (hako/decode enc {:tolerate-unknown-tags true})]
           (is (ext/tagged-value? r))
-          (is (= uri-tag-id (:ext r)))
+          (is (= uri-wire-id (:ext r)))
           (is (instance? MemorySegment (:bytes r))))))))

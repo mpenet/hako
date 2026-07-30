@@ -130,18 +130,37 @@
 (def ^:private user-tag-registry
   (atom {:by-class {} :by-id {}}))
 
-(defn register-user-tag!
-  "Register a user extension tag `id` for `klass`. See ns docstring for
-  callback signatures."
-  [^long id ^Class klass write-fn read-fn]
-  (when (or (< id 0) (> id 0xFFFFFFFF))
-    (throw (ex-info "user-tag id out of range" {:id id})))
+(def ^:private ^:const private-range-base 0x10000000)
+(def ^:private ^:const private-range-max  0x0FFFFFFF)
+
+(defn register-user-tag-raw!
+  "Register with a full u32 wire id (0..0xFFFFFFFF). Escape hatch for
+  callers coordinating on an external id scheme; most callers should
+  use `register-user-tag!` with a small (0..0x0FFFFFFF) id."
+  [^long wire-id ^Class klass write-fn read-fn]
+  (when (or (< wire-id 0) (> wire-id 0xFFFFFFFF))
+    (throw (ex-info "user-tag id out of range (expected u32)" {:id wire-id})))
   (swap! user-tag-registry
          (fn [reg]
            (-> reg
-               (assoc-in [:by-class klass] {:id id :write-fn write-fn})
-               (assoc-in [:by-id id] {:read-fn read-fn}))))
-  id)
+               (assoc-in [:by-class klass] {:id wire-id :write-fn write-fn})
+               (assoc-in [:by-id wire-id] {:read-fn read-fn}))))
+  wire-id)
+
+(defn register-user-tag!
+  "Register a user extension tag `id` for `klass`. See ns docstring for
+  callback signatures.
+
+  `id` is a small non-negative integer (0..0x0FFFFFFF) that hako shifts
+  into the private wire range (0x10000000+). Callers pick 1, 2, 3...
+  per application; the shift is a compile-time add with no per-encode
+  cost. The full wire id (returned) can be passed to
+  `register-user-tag-raw!` for cross-app registrations."
+  [^long id ^Class klass write-fn read-fn]
+  (when (or (< id 0) (> id private-range-max))
+    (throw (ex-info "user-tag id out of range (expected 0..0x0FFFFFFF)"
+                    {:id id :max private-range-max})))
+  (register-user-tag-raw! (+ private-range-base id) klass write-fn read-fn))
 
 (defn user-tag-for-class [^Class klass]
   (get-in @user-tag-registry [:by-class klass]))

@@ -65,6 +65,11 @@ Ranges:
 
 Registration for the public range happens by PR against this document.
 
+The `ext/register-user-tag!` Clojure API accepts a small app-local id
+(`0..0x0FFFFFFF`) and shifts it into the private range on the wire —
+callers write `1`, `2`, ... rather than picking hex constants. Use
+`ext/register-user-tag-raw!` when coordinating on a specific u32 wire id.
+
 ## E.3 Reader tolerance
 
 Reader options:

@@ -149,12 +149,19 @@ Registered classes participate in encode / decode automatically.
 ### `register-user-tag!`
 
 ```clj
-(register-user-tag! id klass write-fn read-fn)   ; -> id
+(register-user-tag! id klass write-fn read-fn)         ; -> wire-id
+(register-user-tag-raw! wire-id klass write-fn read-fn) ; -> wire-id
 ```
 
-Bind a user-tag id (u32; see [../EXTENSIONS.md](../EXTENSIONS.md)
-§E.2 for ranges) to a Java class + encode/decode callbacks.
+Bind a user-tag id to a Java class + encode/decode callbacks.
 
+- `register-user-tag!` accepts a small app-local `id` (`0..0x0FFFFFFF`)
+  and shifts it into the private wire range (`0x10000000+`). Callers
+  write `1`, `2`, ... instead of hex constants. Returns the full wire
+  id (a `long`).
+- `register-user-tag-raw!` accepts a full u32 wire id — escape hatch
+  for cross-app coordination or public-range registrations. See
+  [../EXTENSIONS.md](../EXTENSIONS.md) §E.2 for the range map.
 - `write-fn` — `(fn [^Writer w value])` — write the payload bytes.
 - `read-fn`  — `(fn [^Reader r])` — parse one value from the
   length-bounded payload region.

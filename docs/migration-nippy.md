@@ -105,7 +105,7 @@ After:
   (hako/decode (redis/get k)))
 
 (ext/register-user-tag!
- 0x10000001                            ; pick an id in the private range
+ 1                                     ; small app-local id (shifted to 0x10000001 on wire)
  URI
  (fn [w u] (.writeString w (str u)))
  (fn [r]
