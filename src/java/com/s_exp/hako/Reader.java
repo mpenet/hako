@@ -22,7 +22,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Mutable hako-format decoder over a {@link MemorySegment}.
@@ -293,8 +292,92 @@ public final class Reader {
 
     // -- Global ident caches (opt-in via setCacheIdents) --------------------
 
-    private static final ConcurrentHashMap<String, Keyword> KW_CACHE = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, Symbol> SYM_CACHE = new ConcurrentHashMap<>();
+    /**
+     * Byte-keyed open-addressing table: keys are UTF-8 byte payloads of
+     * non-namespaced ident names, values are the interned Keyword/Symbol.
+     * Volatile snapshot pattern — lock-free reads, synchronized writes
+     * that clone-and-swap the whole table. Avoids the String allocation
+     * that a {@code CHM<String, Keyword>} would force on every lookup.
+     */
+    private static final class IdentCache<V> {
+        final byte[][] keys;
+        final V[]      values;
+        final int      mask;
+        final int      size;
+
+        IdentCache(byte[][] keys, V[] values, int mask, int size) {
+            this.keys = keys; this.values = values;
+            this.mask = mask; this.size = size;
+        }
+
+        @SuppressWarnings("unchecked")
+        static <V> IdentCache<V> empty(int cap) {
+            return new IdentCache<>(new byte[cap][], (V[]) new Object[cap], cap - 1, 0);
+        }
+
+        V lookupSeg(MemorySegment seg, long off, int len, int hash) {
+            int i = hash & mask;
+            while (true) {
+                byte[] k = keys[i];
+                if (k == null) return null;
+                if (k.length == len && bytesEqualSeg(seg, off, k)) return values[i];
+                i = (i + 1) & mask;
+            }
+        }
+
+        V lookupArr(byte[] arr, int hash) {
+            int i = hash & mask;
+            while (true) {
+                byte[] k = keys[i];
+                if (k == null) return null;
+                if (k.length == arr.length && Arrays.equals(k, arr)) return values[i];
+                i = (i + 1) & mask;
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        IdentCache<V> withEntry(byte[] key, V val) {
+            int cap = keys.length;
+            int newCap = ((size + 1) << 1) > cap ? cap << 1 : cap;
+            byte[][] nk = new byte[newCap][];
+            V[]      nv = (V[]) new Object[newCap];
+            int mask2  = newCap - 1;
+            for (int j = 0; j < cap; j++) {
+                byte[] k = keys[j];
+                if (k != null) insertRaw(nk, nv, mask2, k, values[j]);
+            }
+            insertRaw(nk, nv, mask2, key, val);
+            return new IdentCache<>(nk, nv, mask2, size + 1);
+        }
+
+        private static <V> void insertRaw(byte[][] nk, V[] nv, int mask, byte[] key, V val) {
+            int i = Arrays.hashCode(key) & mask;
+            while (nk[i] != null) i = (i + 1) & mask;
+            nk[i] = key;
+            nv[i] = val;
+        }
+    }
+
+    private static volatile IdentCache<Keyword> KW_CACHE = IdentCache.empty(1024);
+    private static volatile IdentCache<Symbol>  SYM_CACHE = IdentCache.empty(256);
+    private static final Object KW_LOCK  = new Object();
+    private static final Object SYM_LOCK = new Object();
+
+    private static int bytesHashSeg(MemorySegment seg, long off, int len) {
+        int h = 1;
+        for (int i = 0; i < len; i++) {
+            h = 31 * h + seg.get(ValueLayout.JAVA_BYTE, off + i);
+        }
+        return h;
+    }
+
+    private static boolean bytesEqualSeg(MemorySegment seg, long off, byte[] target) {
+        int n = target.length;
+        for (int i = 0; i < n; i++) {
+            if (seg.get(ValueLayout.JAVA_BYTE, off + i) != target[i]) return false;
+        }
+        return true;
+    }
 
     /**
      * Pre-populate the global keyword cache used by
@@ -305,55 +388,80 @@ public final class Reader {
      * and go through {@code Keyword.intern} directly.
      */
     public static void primeKwCache(String name, Keyword kw) {
-        KW_CACHE.putIfAbsent(name, kw);
+        byte[] bs = identBytes(null, name);
+        synchronized (KW_LOCK) {
+            if (KW_CACHE.lookupArr(bs, Arrays.hashCode(bs)) == null) {
+                KW_CACHE = KW_CACHE.withEntry(bs, kw);
+            }
+        }
     }
 
     /** Symbol counterpart of {@link #primeKwCache}. */
     public static void primeSymCache(String name, Symbol sym) {
-        SYM_CACHE.putIfAbsent(name, sym);
+        byte[] bs = identBytes(null, name);
+        synchronized (SYM_LOCK) {
+            if (SYM_CACHE.lookupArr(bs, Arrays.hashCode(bs)) == null) {
+                SYM_CACHE = SYM_CACHE.withEntry(bs, sym);
+            }
+        }
     }
+
+    /**
+     * Build the wire-format ident payload: [nsLen byte][ns bytes][name bytes].
+     * Used to construct cache keys that match on-wire byte layout.
+     */
+    private static byte[] identBytes(String ns, String name) {
+        byte[] nsB   = ns != null ? ns.getBytes(StandardCharsets.UTF_8) : EMPTY_BYTES;
+        byte[] nameB = name.getBytes(StandardCharsets.UTF_8);
+        byte[] out   = new byte[1 + nsB.length + nameB.length];
+        out[0] = (byte) nsB.length;
+        System.arraycopy(nsB, 0, out, 1, nsB.length);
+        System.arraycopy(nameB, 0, out, 1 + nsB.length, nameB.length);
+        return out;
+    }
+
+    private static final byte[] EMPTY_BYTES = new byte[0];
 
     // -- Ident payload parsing ---------------------------------------------
 
-    // Scratch fields for readIdentPayload → readKeyword/readSymbol.
-    // Avoids allocating a String[] holder on every ident decode.
-    private String identNs;
-    private String identName;
-
-    /** Populates {@link #identNs} and {@link #identName}. */
-    private void readIdentPayload(int tierCode) {
+    private Keyword readKeyword(int tierCode) {
+        // Cache-idents hot path: hash over the full ident payload
+        // (nsLen byte + ns + name bytes — inherently unique per (ns, name))
+        // and look up the cached Keyword. Only materialize Strings on miss.
         long totalLen = checkCount(readTierPayload(tierCode), "identifier length");
-        int nsLen = getByte();
-        // Spec (SPEC.md §3.4): ns-length + 1 + name-length == size-tier length.
-        // Reject a corrupted stream where ns-length overruns the announced total.
+        int payloadLen = (int) totalLen;
+        need(payloadLen);
+        int nsLen = seg.get(ValueLayout.JAVA_BYTE, pos) & 0xFF;
         if (nsLen + 1 > totalLen) {
             throw new IllegalStateException(
                 "hako: identifier ns-length " + nsLen
                 + " exceeds declared payload length " + totalLen);
         }
-        int nameLen = (int) totalLen - 1 - nsLen;
-        identNs = nsLen > 0 ? getString(nsLen) : null;
-        identName = getString(nameLen);
-    }
-
-    private Keyword readKeyword(int tierCode) {
-        readIdentPayload(tierCode);
-        String ns = identNs, name = identName;
+        int nameLen = payloadLen - 1 - nsLen;
         Keyword kw;
-        // Cache lookup only for non-namespaced idents — those are the
-        // hot case in typical Clojure payloads (map keys). Namespaced
-        // idents fall through to Keyword.intern, which has its own
-        // canonicalizing cache and doesn't need our String key concat.
-        if (cacheIdents && ns == null) {
-            Keyword hit = KW_CACHE.get(name);
+        if (cacheIdents) {
+            int hash = bytesHashSeg(seg, pos, payloadLen);
+            Keyword hit = KW_CACHE.lookupSeg(seg, pos, payloadLen, hash);
             if (hit != null) {
+                pos += payloadLen;
                 kw = hit;
             } else {
-                kw = Keyword.intern(null, name);
-                Keyword prev = KW_CACHE.putIfAbsent(name, kw);
-                if (prev != null) kw = prev;
+                pos += 1;   // skip nsLen byte
+                String ns   = nsLen > 0 ? getString(nsLen) : null;
+                String name = getString(nameLen);
+                kw = Keyword.intern(ns, name);
+                byte[] bs = new byte[payloadLen];
+                MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, pos - payloadLen, bs, 0, payloadLen);
+                synchronized (KW_LOCK) {
+                    if (KW_CACHE.lookupArr(bs, hash) == null) {
+                        KW_CACHE = KW_CACHE.withEntry(bs, kw);
+                    }
+                }
             }
         } else {
+            pos += 1;
+            String ns   = nsLen > 0 ? getString(nsLen) : null;
+            String name = getString(nameLen);
             kw = Keyword.intern(ns, name);
         }
         symTable.add(kw);
@@ -361,19 +469,40 @@ public final class Reader {
     }
 
     private Symbol readSymbol(int tierCode) {
-        readIdentPayload(tierCode);
-        String ns = identNs, name = identName;
+        long totalLen = checkCount(readTierPayload(tierCode), "identifier length");
+        int payloadLen = (int) totalLen;
+        need(payloadLen);
+        int nsLen = seg.get(ValueLayout.JAVA_BYTE, pos) & 0xFF;
+        if (nsLen + 1 > totalLen) {
+            throw new IllegalStateException(
+                "hako: identifier ns-length " + nsLen
+                + " exceeds declared payload length " + totalLen);
+        }
+        int nameLen = payloadLen - 1 - nsLen;
         Symbol sym;
-        if (cacheIdents && ns == null) {
-            Symbol hit = SYM_CACHE.get(name);
+        if (cacheIdents) {
+            int hash = bytesHashSeg(seg, pos, payloadLen);
+            Symbol hit = SYM_CACHE.lookupSeg(seg, pos, payloadLen, hash);
             if (hit != null) {
+                pos += payloadLen;
                 sym = hit;
             } else {
-                sym = Symbol.intern(null, name);
-                Symbol prev = SYM_CACHE.putIfAbsent(name, sym);
-                if (prev != null) sym = prev;
+                pos += 1;
+                String ns   = nsLen > 0 ? getString(nsLen) : null;
+                String name = getString(nameLen);
+                sym = Symbol.intern(ns, name);
+                byte[] bs = new byte[payloadLen];
+                MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, pos - payloadLen, bs, 0, payloadLen);
+                synchronized (SYM_LOCK) {
+                    if (SYM_CACHE.lookupArr(bs, hash) == null) {
+                        SYM_CACHE = SYM_CACHE.withEntry(bs, sym);
+                    }
+                }
             }
         } else {
+            pos += 1;
+            String ns   = nsLen > 0 ? getString(nsLen) : null;
+            String name = getString(nameLen);
             sym = Symbol.intern(ns, name);
         }
         symTable.add(sym);
