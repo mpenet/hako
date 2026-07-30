@@ -356,12 +356,12 @@ Reproduce with `clj -M:bench -m alloc-bench`.
 |----------------------|--------------------:|-----------:|--------------:|
 | `long-array-1k`      |              **40** |     37888  | **947× less** |
 | `string-10k`         |           **10056** |     20152  | **2.0× less** |
-| `ns-map` (50 kw)     |            **4840** |     21784  | **4.5× less** |
+| `ns-map` (50 kw)     |              **40** |     21784  | **544× less** |
 | `string-100`         |             **160** |       352  | **2.2× less** |
-| `small-map`          |             **160** |       288  | **1.8× less** |
-| `mixed`              |             **240** |       504  | **2.1× less** |
+| `small-map`          |              **88** |       288  | **3.3× less** |
+| `mixed`              |              **64** |       504  | **7.9× less** |
 | `vec-of-strings`     |            **2440** |      3472  | **1.4× less** |
-| `nested-map` (50 kw) |            **1336** |     10000  | **7.5× less** |
+| `nested-map` (50 kw) |              **40** |     10000  | **250× less** |
 
 **Decode** — `decode-into!` →seg src vs `nippy/fast-thaw`
 (measured with `{:cache-idents true}`)
@@ -369,20 +369,25 @@ Reproduce with `clj -M:bench -m alloc-bench`.
 | payload              | `decode-into!` →seg src | nippy-fast | vs nippy-fast |
 |----------------------|------------------------:|-----------:|--------------:|
 | `long-array-1k`      |                **8088** |     70976  | **8.8× less** |
-| `nested-map` (50 kw) |               **10384** |     40176  | **3.9× less** |
-| `small-map`          |                 **384** |       768  | **2.0× less** |
+| `nested-map` (50 kw) |                **7792** |     40176  | **5.2× less** |
+| `small-map`          |                 **240** |       768  | **3.2× less** |
 | `string-10k`         |               **10112** |     20192  | **2.0× less** |
 | `string-100`         |                 **216** |       384  | **1.8× less** |
-| `mixed`              |                 **888** |      2096  | **2.4× less** |
-| `ns-map` (50 kw)     |               **16464** |     24800  | **1.5× less** |
+| `mixed`              |                 **600** |      2096  | **3.5× less** |
+| `ns-map` (50 kw)     |                **3664** |     24800  | **6.8× less** |
 | `vec-of-strings`     |                **5808** |      8336  | **1.4× less** |
 
 `encode-into!` →seg wins allocation on **every measured cell** —
-encode and decode. On `long-array-1k` encode the ratio is **947×**.
+encode and decode. Keyword-heavy encode paths (`nested-map`,
+`ns-map`) sit at the **40 B** MemorySegment-slice baseline once
+the Writer is warmed and the global keyword-bytes cache has been
+populated. Use `encode-into-buffer!` to hand the encoded bytes
+directly into a caller-owned `byte[]` / `ByteBuffer` — skips the
+40 B slice wrapper for callers who own their output buffer.
 
 This allocation delta is the tail-latency story — invisible to
 mean-of-loop timing benches. Under load (e.g. 100k msg/s), a
-30 KB/op reduction per encode is 3 GB/s less young-gen churn on
+10 KB/op reduction per encode is 1 GB/s less young-gen churn on
 the consuming JVM. See [Performance](docs/performance.md) for
 tuning notes.
 
