@@ -104,7 +104,7 @@
    (.writeEnvelope wr)
    (.writeAny wr value)
    (cond
-     (bytes? dst)                (.copyTo wr ^bytes dst (int (or (:offset opts) 0)))
+     (bytes? dst)                (.copyTo wr ^"[B" dst (int (or (:offset opts) 0)))
      (instance? ByteBuffer dst)  (.copyTo wr ^ByteBuffer dst)
      :else                       (throw (ex-info "hako: unsupported destination"
                                                  {:type (class dst)})))))
