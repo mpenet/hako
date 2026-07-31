@@ -388,6 +388,11 @@ public final class Writer implements AutoCloseable {
         putU16(codeUnit);
     }
 
+    public void writeDate(long epochMillis) {
+        putByte(Format.tag(Format.M_SPEC, Format.SPEC_DATE));
+        putI64(epochMillis);
+    }
+
     public void writeLongArray(long[] arr) {
         int n = arr.length;
         putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_LONGS));
@@ -764,6 +769,10 @@ public final class Writer implements AutoCloseable {
         if (v instanceof Instant) {
             Instant t = (Instant) v;
             writeInstant(t.getEpochSecond(), t.getNano());
+            return;
+        }
+        if (v instanceof java.util.Date) {
+            writeDate(((java.util.Date) v).getTime());
             return;
         }
 

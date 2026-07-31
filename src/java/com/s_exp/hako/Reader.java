@@ -607,6 +607,8 @@ public final class Reader {
             }
             case Format.SPEC_CHAR:
                 return Character.valueOf((char) getU16());
+            case Format.SPEC_DATE:
+                return new java.util.Date(getI64());
             default:
                 throw new IllegalStateException("hako: unknown special subtype " + low);
         }
