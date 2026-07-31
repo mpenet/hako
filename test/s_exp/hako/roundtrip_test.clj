@@ -2,7 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [s-exp.hako :as hako])
   (:import (java.time Instant)
-           (java.util UUID)))
+           (java.util Date UUID)))
 
 (defn- rt [v] (hako/decode (hako/encode v)))
 
@@ -84,4 +84,7 @@
   (let [u (UUID/randomUUID)]
     (is (= u (rt u))))
   (let [t (Instant/now)]
-    (is (= t (rt t)))))
+    (is (= t (rt t))))
+  (let [d (Date.)]
+    (is (= d (rt d)))
+    (is (instance? Date (rt d)))))
