@@ -728,6 +728,17 @@ public final class Writer implements AutoCloseable {
             return;
         }
 
+        // User-tag registrations win over generic collection / sequence
+        // dispatch — otherwise a registered SpillableVector /
+        // RoaringBitmap / SpillableMap / SpillableSet would silently
+        // encode as a vector / list / map / set and lose its type on
+        // decode. `UserTagRegistry.has` is a `ClassValue` slot after
+        // the first hit — ~1 ns per call.
+        if (UserTagRegistry.has(v.getClass())) {
+            fallback(v);
+            return;
+        }
+
         if (v instanceof IPersistentVector) { writeVectorAny((IPersistentVector) v); return; }
         if (v instanceof IPersistentMap)    { writeMapAny((IPersistentMap) v); return; }
         if (v instanceof IPersistentSet)    { writeSetAny((IPersistentSet) v); return; }

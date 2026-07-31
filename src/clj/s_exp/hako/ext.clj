@@ -145,6 +145,7 @@
            (-> reg
                (assoc-in [:by-class klass] {:id wire-id :write-fn write-fn})
                (assoc-in [:by-id wire-id] {:read-fn read-fn}))))
+  (com.s_exp.hako.UserTagRegistry/add klass)
   wire-id)
 
 (defn register-user-tag!

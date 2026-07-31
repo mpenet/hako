@@ -77,7 +77,9 @@
 
 (defn install-handler!
   "Attach the Clojure fallback handler to `w`. Called once at Writer
-  creation — the handler is retained across `.reset`."
+  creation — the handler is retained across `.reset`. The Writer's
+  Java-side check consults `com.s_exp.hako.UserTagRegistry` directly
+  for the user-tag-vs-generic-Iterable dispatch decision."
   [^Writer w]
   (.setUnknownHandler w handler))
 
