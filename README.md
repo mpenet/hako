@@ -120,7 +120,7 @@ Semantic equality (`=`) is preserved for all listed types.
   `Double`, `Float`, `String`.
 - `byte[]`, `long[]`, `double[]`, `int[]`, `float[]`.
 - `Keyword`, `Symbol` — with per-message symbol table + symref dedup.
-- `UUID`, `java.time.Instant`.
+- `UUID`, `java.time.Instant`, `java.util.Date`.
 - `BigInteger`, `clojure.lang.BigInt`, `BigDecimal`, `Ratio`.
 - `PersistentVector`, `PersistentList`, `PersistentHashSet`,
   `PersistentHashMap`, `PersistentArrayMap`, `ISeq`.

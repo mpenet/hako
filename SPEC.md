@@ -142,7 +142,8 @@ byte.
 | 6          | UUID (next 16 bytes)               |
 | 7          | java.time.Instant (i64 epoch-seconds LE + i32 nanos LE) |
 | 8          | char (next 2 bytes as u16 LE, decoded as UTF-16 code unit) |
-| 9..15      | reserved                           |
+| 9          | java.util.Date (next 8 bytes as i64 epoch-milliseconds LE) |
+| 10..15     | reserved                           |
 
 ### 3.4 Symbol table (interning)
 
