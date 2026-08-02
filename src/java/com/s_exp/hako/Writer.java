@@ -46,7 +46,7 @@ public final class Writer implements AutoCloseable {
 
     private static final byte[] EMPTY = new byte[0];
 
-    private final Arena arena;
+    private Arena arena;
     private MemorySegment seg;
     private long pos;
     private long cap;
@@ -214,8 +214,16 @@ public final class Writer implements AutoCloseable {
         long need = pos + n;
         long newCap = cap;
         while (newCap < need) newCap <<= 1;
-        MemorySegment newSeg = arena.allocate(newCap, 1);
+        // A confined Arena only releases memory on close() — allocating
+        // the new buffer in the same arena would retain every prior
+        // generation until the Writer is closed (~2x final size pinned
+        // for the lifetime of a pooled Writer). Each buffer generation
+        // gets its own arena; the old one is closed after the copy.
+        Arena newArena = Arena.ofConfined();
+        MemorySegment newSeg = newArena.allocate(newCap, 1);
         MemorySegment.copy(seg, 0L, newSeg, 0L, pos);
+        arena.close();
+        arena = newArena;
         seg = newSeg;
         cap = newCap;
     }
