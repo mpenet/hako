@@ -143,6 +143,62 @@
      (.readEnvelope rd)
      (.readAny rd))))
 
+;; -- Thread-local pooled Reader / Writer -----------------------------------
+;;
+;; Opt-in pooled variants: skip the per-call Reader / Writer construction
+;; (~250 B for the Reader alone). Callers on short-lived threads or
+;; servlet-style containers should invoke `close-thread-locals!` at
+;; thread exit / request boundary to release the confined Arena inside
+;; the Writer and drop scratch buffers. Long-lived pooled threads
+;; (application worker pools, virtual-thread pools with reuse) can
+;; ignore cleanup — the pool amortises the setup cost.
+
+(def ^:private ^ThreadLocal tl-reader
+  (proxy [ThreadLocal] []
+    (initialValue [] (reader (byte-array 0)))))
+
+(def ^:private ^ThreadLocal tl-writer
+  (proxy [ThreadLocal] []
+    (initialValue [] (writer 4096))))
+
+(defn decode-pooled
+  "Like `decode` but uses a thread-local reusable Reader. Skips the
+  ~250 B allocation of the fresh-Reader path. Same semantics + options
+  as `decode`.
+
+  Callers on short-lived threads should call `close-thread-locals!` at
+  thread exit to avoid pinning the Reader + its scratch buffers. See
+  the ns docstring for the trade-off."
+  ([src] (decode-pooled src nil))
+  ([src opts] (decode-into! (.get tl-reader) src opts)))
+
+(defn encode-pooled
+  "Like `encode` but uses a thread-local reusable Writer. The writer
+  is warmed once per thread — subsequent encodes skip the arena setup
+  cost (~500 B). Copies the encoded MemorySegment to a fresh byte[]
+  on return, same signature as `encode`.
+
+  Callers on short-lived threads should call `close-thread-locals!`
+  at thread exit to release the Writer's confined Arena."
+  (^bytes [value] (encode-pooled value nil))
+  (^bytes [value opts]
+   (let [wr ^Writer (.get tl-writer)
+         seg (encode-into! wr value opts)
+         n (.byteSize seg)
+         arr (byte-array n)]
+     (MemorySegment/copy seg ValueLayout/JAVA_BYTE 0 arr 0 n)
+     arr)))
+
+(defn close-thread-locals!
+  "Release the current thread's pooled Writer / Reader instances. Call
+  at the end of a short-lived thread's work — closes the Writer's
+  confined Arena and drops the Reader's scratch buffers. Idempotent."
+  []
+  (when-let [wr ^Writer (.get tl-writer)]
+    (.close wr))
+  (.remove tl-writer)
+  (.remove tl-reader))
+
 (defn encode-many
   "Encode `values` (a sequence) into a single byte[] sharing one symbol
   table across the whole stream. Reads compact when many values repeat

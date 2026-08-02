@@ -196,14 +196,24 @@ public final class Reader {
     }
 
     private byte[] stringDecodeBuf = new byte[128];
+    // Above this cap, oversized strings decode through a one-shot buffer
+    // that goes to GC instead of pinning the reusable scratch at the
+    // largest string ever seen. Prevents a pathological 10 MB payload
+    // from wedging 10 MB per thread for the JVM lifetime.
+    private static final int STRING_DECODE_BUF_MAX = 1 << 20;  // 1 MiB
 
     public String getString(int n) {
         if (n == 0) return "";
         need(n);
-        byte[] buf = stringDecodeBuf;
-        if (buf.length < n) {
-            buf = new byte[Math.max(n, buf.length * 2)];
-            stringDecodeBuf = buf;
+        byte[] buf;
+        if (n > STRING_DECODE_BUF_MAX) {
+            buf = new byte[n];
+        } else {
+            buf = stringDecodeBuf;
+            if (buf.length < n) {
+                buf = new byte[Math.max(n, buf.length * 2)];
+                stringDecodeBuf = buf;
+            }
         }
         MemorySegment.copy(seg, ValueLayout.JAVA_BYTE, pos, buf, 0, n);
         pos += n;
