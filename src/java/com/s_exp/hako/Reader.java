@@ -572,20 +572,17 @@ public final class Reader {
             return t.persistent();
         }
         Object[] arr = new Object[n * 2];
+        // Track allKw during the fill loop so we skip the separate
+        // `allKeywordKeys` re-scan below.
+        boolean allKw = true;
         for (int i = 0; i < n; i++) {
-            arr[2 * i] = readAny();
+            Object k = readAny();
+            if (allKw && !(k instanceof Keyword)) allKw = false;
+            arr[2 * i] = k;
             arr[2 * i + 1] = readAny();
         }
-        if (n <= arrayMapThreshold) return new PersistentArrayMap(arr);
-        if (allKeywordKeys(arr, n)) return new PersistentArrayMap(arr);
+        if (n <= arrayMapThreshold || allKw) return new PersistentArrayMap(arr);
         return PersistentHashMap.create(arr);
-    }
-
-    private static boolean allKeywordKeys(Object[] arr, int n) {
-        for (int i = 0; i < n; i++) {
-            if (!(arr[2 * i] instanceof Keyword)) return false;
-        }
-        return true;
     }
 
     // -- Special / bignumeric / extension reads ----------------------------
