@@ -1,11 +1,12 @@
 (ns s-exp.hako.writer
-  "Thin dispatch bridge for hako encode. Scalar / collection / record
-  encoding all live in com.s_exp.hako.Writer.writeAny (Java). This
-  namespace only handles the fallback callback — sorted collections,
-  queue, and user-tagged types."
+  "Thin dispatch bridge for hako encode. Scalar / collection / record /
+  sorted-coll / queue encoding all live in `com.s_exp.hako.Writer`
+  (Java). This namespace only handles the fallback callback for
+  user-tagged types + the custom-comparator warning."
   (:require [s-exp.hako.ext :as ext])
-  (:import (clojure.lang PersistentQueue PersistentTreeMap PersistentTreeSet)
-           (com.s_exp.hako Format Writer Writer$UnknownHandler)))
+  (:import (com.s_exp.hako Writer
+                           Writer$CustomComparatorWarner
+                           Writer$UnknownHandler)))
 
 (set! *warn-on-reflection* true)
 
@@ -13,46 +14,15 @@
   "Emits the coercion warning at most once per JVM."
   (atom false))
 
-(defn- maybe-warn-custom-cmp! [coll]
-  (when (compare-and-set! warned-custom-cmp? false true)
-    (binding [*out* *err*]
-      (println (str "hako: WARNING — coercing custom comparator on "
-                    (class coll)
-                    " to natural ordering on encode; the comparator will "
-                    "not be restored on decode.")))))
-
-(defn- write-sorted-set!
-  [^Writer w ^PersistentTreeSet s]
-  (when-not (ext/default-comparator? s)
-    (if (.coerceCustomComparator w)
-      (maybe-warn-custom-cmp! s)
-      (throw (ex-info "hako: cannot encode sorted-set with custom comparator"
-                      {:comparator (.comparator s)}))))
-  (.putByte w (Format/tag Format/M_EXT Format/EXT_SORTED_SET))
-  (.putTierValue w (.count s))
-  (reduce (fn [_ x] (.writeAny w x) nil) nil s))
-
-(defn- write-sorted-map!
-  [^Writer w ^PersistentTreeMap m]
-  (when-not (ext/default-comparator? m)
-    (if (.coerceCustomComparator w)
-      (maybe-warn-custom-cmp! m)
-      (throw (ex-info "hako: cannot encode sorted-map with custom comparator"
-                      {:comparator (.comparator m)}))))
-  (.putByte w (Format/tag Format/M_EXT Format/EXT_SORTED_MAP))
-  (.putTierValue w (.count m))
-  (reduce-kv
-   (fn [_ k v]
-     (.writeAny w k)
-     (.writeAny w v)
-     nil)
-   nil m))
-
-(defn- write-queue!
-  [^Writer w ^PersistentQueue q]
-  (.putByte w (Format/tag Format/M_EXT Format/EXT_QUEUE))
-  (.putTierValue w (count q))
-  (reduce (fn [_ x] (.writeAny w x) nil) nil q))
+(def ^Writer$CustomComparatorWarner custom-cmp-warner
+  (reify Writer$CustomComparatorWarner
+    (warn [_ coll]
+      (when (compare-and-set! warned-custom-cmp? false true)
+        (binding [*out* *err*]
+          (println (str "hako: WARNING — coercing custom comparator on "
+                        (class coll)
+                        " to natural ordering on encode; the comparator will "
+                        "not be restored on decode.")))))))
 
 (defn- write-user-tag!
   [^Writer w x info]
@@ -65,23 +35,19 @@
     (write [_ w v]
       (let [w ^Writer w
             klass (class v)]
-        (cond
-          (instance? PersistentTreeSet v) (write-sorted-set! w v)
-          (instance? PersistentTreeMap v) (write-sorted-map! w v)
-          (instance? PersistentQueue v)   (write-queue! w v)
-          :else
-          (if-let [info (ext/user-tag-for-class klass)]
-            (write-user-tag! w v info)
-            (throw (ex-info "hako: no writer for value"
-                            {:type klass :value v}))))))))
+        (if-let [info (ext/user-tag-for-class klass)]
+          (write-user-tag! w v info)
+          (throw (ex-info "hako: no writer for value"
+                          {:type klass :value v})))))))
 
 (defn install-handler!
-  "Attach the Clojure fallback handler to `w`. Called once at Writer
-  creation — the handler is retained across `.reset`. The Writer's
-  Java-side check consults `com.s_exp.hako.UserTagRegistry` directly
-  for the user-tag-vs-generic-Iterable dispatch decision."
+  "Attach the Clojure fallback handler + custom-comparator warner to
+  `w`. Called once at Writer creation — both retained across `.reset`.
+  The Writer's Java-side check consults `com.s_exp.hako.UserTagRegistry`
+  directly for the user-tag-vs-generic-Iterable dispatch decision."
   [^Writer w]
-  (.setUnknownHandler w handler))
+  (.setUnknownHandler w handler)
+  (.setCustomComparatorWarner w custom-cmp-warner))
 
 (defn write-value!
   "Backwards-compatible facade around `.writeAny`."

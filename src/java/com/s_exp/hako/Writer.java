@@ -11,6 +11,9 @@ import clojure.lang.IPersistentSet;
 import clojure.lang.IPersistentVector;
 import clojure.lang.ISeq;
 import clojure.lang.Keyword;
+import clojure.lang.PersistentQueue;
+import clojure.lang.PersistentTreeMap;
+import clojure.lang.PersistentTreeSet;
 import clojure.lang.Ratio;
 import clojure.lang.Symbol;
 import java.lang.foreign.Arena;
@@ -642,6 +645,55 @@ public final class Writer implements AutoCloseable {
         while (it.hasNext()) writeAny(it.next());
     }
 
+    // Default comparator identity — natural ordering that `sorted-set` /
+    // `sorted-map` install. Cached at class-init.
+    private static final java.util.Comparator<?> DEFAULT_TREESET_CMP =
+        PersistentTreeSet.EMPTY.comparator();
+    private static final java.util.Comparator<?> DEFAULT_TREEMAP_CMP =
+        PersistentTreeMap.EMPTY.comparator();
+
+    /** Callback for the custom-comparator coercion warning (once-per-JVM). */
+    public interface CustomComparatorWarner {
+        void warn(Object coll);
+    }
+    private CustomComparatorWarner customComparatorWarner;
+    public void setCustomComparatorWarner(CustomComparatorWarner w) {
+        this.customComparatorWarner = w;
+    }
+
+    private void checkComparator(Object coll, java.util.Comparator<?> actual,
+                                 java.util.Comparator<?> expected) {
+        if (actual == expected) return;
+        if (!coerceCustomComparator) {
+            throw new IllegalArgumentException(
+                "hako: cannot encode " + coll.getClass().getSimpleName()
+                + " with custom comparator: " + actual);
+        }
+        if (customComparatorWarner != null) customComparatorWarner.warn(coll);
+    }
+
+    private void writeSortedSet(PersistentTreeSet s) {
+        checkComparator(s, s.comparator(), DEFAULT_TREESET_CMP);
+        putByte(Format.tag(Format.M_EXT, Format.EXT_SORTED_SET));
+        putTierValue(s.count());
+        java.util.Iterator<?> it = s.iterator();
+        while (it.hasNext()) writeAny(it.next());
+    }
+
+    private void writeSortedMap(PersistentTreeMap m) {
+        checkComparator(m, m.comparator(), DEFAULT_TREEMAP_CMP);
+        putByte(Format.tag(Format.M_EXT, Format.EXT_SORTED_MAP));
+        putTierValue(m.count());
+        m.kvreduce(KV_WRITER, this);
+    }
+
+    private void writeQueue(PersistentQueue q) {
+        putByte(Format.tag(Format.M_EXT, Format.EXT_QUEUE));
+        putTierValue(q.count());
+        java.util.Iterator<?> it = q.iterator();
+        while (it.hasNext()) writeAny(it.next());
+    }
+
     private void writeSeqAny(ISeq s) {
         // Counted → single-pass with known count (PersistentList, etc.).
         // Lazy/chunked seqs: fall through to materialize — a second walk
@@ -724,14 +776,13 @@ public final class Writer implements AutoCloseable {
             writeRecord(v);
             return;
         }
-        // Delegate remaining types that overlap generic interfaces below
-        // to the Clojure fallback (sorted colls, queue, user-tags).
-        if (v instanceof clojure.lang.PersistentTreeSet
-            || v instanceof clojure.lang.PersistentTreeMap
-            || v instanceof clojure.lang.PersistentQueue) {
-            fallback(v);
-            return;
-        }
+        // Sorted-coll + queue — Java-native paths. Preempts the generic
+        // IPersistentSet/Map/Vector dispatch below since PersistentTreeSet
+        // implements IPersistentSet, PersistentTreeMap implements
+        // IPersistentMap, and PersistentQueue implements IPersistentList.
+        if (v instanceof PersistentTreeSet) { writeSortedSet((PersistentTreeSet) v); return; }
+        if (v instanceof PersistentTreeMap) { writeSortedMap((PersistentTreeMap) v); return; }
+        if (v instanceof PersistentQueue)   { writeQueue((PersistentQueue) v); return; }
 
         // User-tag registrations win over generic collection / sequence
         // dispatch — otherwise a registered SpillableVector /
