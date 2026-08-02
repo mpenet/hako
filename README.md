@@ -52,18 +52,31 @@ Pre-release, alpha.
 ;; => {:name "Alice", :tags #{:a :b :c}, :score 42}
 ```
 
+> **Note.** `hako/encode` and `hako/decode` are drop-in helpers to
+> ease migration from other serializers — each call allocates a
+> fresh `Writer` / `Reader` (~500 B / ~250 B) and opens a private
+> confined `Arena`. They are **not** the idiomatic way to use hako.
+> Reach for `encode-into!` / `decode-into!` (reusable
+> `Writer` / `Reader`) or the ThreadLocal-pooled variants
+> `encode-pooled` / `decode-pooled` for hot paths. See the
+> [API](#api) section below and
+> [Performance](docs/performance.md).
+
 ## API
 
 ### Encoding
 
 ```clj
+;; Migration-friendly one-shots — convenient, but allocate a fresh
+;; Writer (~500 B) and confined Arena per call. Prefer the reusable
+;; or pooled forms below on any hot path.
 (hako/encode value)                    ; -> byte[]
 (hako/encode value opts)               ; -> byte[]
 
 (hako/encode-to-segment arena value)   ; -> MemorySegment (caller owns arena)
 (hako/encode-to-segment arena value opts)
 
-;; Reusable writer for high-throughput encode loops:
+;; Idiomatic — reusable writer for high-throughput encode loops:
 (with-open [wr (hako/writer 4096)]
   (dotimes [_ 1000]
     (let [seg (hako/encode-into! wr some-value)]
