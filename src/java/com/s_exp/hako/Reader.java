@@ -537,13 +537,16 @@ public final class Reader {
         return t.persistent();
     }
 
-    @SuppressWarnings("unchecked")
     private Object readList(int tierCode) {
         int n = (int) checkCount(readTierPayload(tierCode), "list count");
         if (n == 0) return PersistentList.EMPTY;
         Object[] arr = new Object[n];
         for (int i = 0; i < n; i++) arr[i] = readAny();
-        return PersistentList.create(Arrays.asList(arr));
+        // Cons backward from the array — skips `Arrays.asList` wrapper and
+        // the `ListIterator` that `PersistentList.create(List)` allocates.
+        clojure.lang.IPersistentCollection ret = PersistentList.EMPTY;
+        for (int i = n - 1; i >= 0; i--) ret = ret.cons(arr[i]);
+        return ret;
     }
 
     private Object readSet(int tierCode) {

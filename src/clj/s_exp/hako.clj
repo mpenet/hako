@@ -168,6 +168,24 @@
          arr)
        (finally (.close wr))))))
 
+(defn encode-many-into!
+  "Batch variant of `encode-into!`. Writes each value in `values` into
+  the reusable `wr`, sharing one symbol table across the whole batch.
+  Returns the MemorySegment slice — same lifecycle as `encode-into!`
+  (valid until the next encode call on `wr`).
+
+  Skips the per-call Writer construction that `encode-many` pays
+  (~500 B). Suitable for pipelines that batch-encode in a loop."
+  (^MemorySegment [^Writer wr values] (encode-many-into! wr values nil))
+  (^MemorySegment [^Writer wr values opts]
+   (.reset wr)
+   (.setWriteMeta wr (boolean (:preserve-meta opts)))
+   (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
+   (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator opts)))
+   (.writeEnvelope wr)
+   (doseq [v values] (.writeAny wr v))
+   (.finish wr)))
+
 (defn- ^MemorySegment ->segment [src]
   (cond
     (instance? MemorySegment src) src
