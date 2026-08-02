@@ -6,6 +6,7 @@ import clojure.lang.Counted;
 import clojure.lang.IFn;
 import clojure.lang.IKVReduce;
 import clojure.lang.IObj;
+import clojure.lang.IReduce;
 import clojure.lang.IPersistentMap;
 import clojure.lang.IPersistentSet;
 import clojure.lang.IPersistentVector;
@@ -603,7 +604,14 @@ public final class Writer implements AutoCloseable {
             }
         }
         writeVectorHeader(n);
-        for (int i = 0; i < n; i++) writeAny(v.nth(i));
+        // PersistentVector's IReduce.reduce is a chunked tail-first walk
+        // that beats per-element nth(i) past the first 32 elements (nth
+        // does log32 tree descent per index).
+        if (v instanceof IReduce) {
+            ((IReduce) v).reduce(VEC_WRITER, this);
+        } else {
+            for (int i = 0; i < n; i++) writeAny(v.nth(i));
+        }
     }
 
     private static Class<?> homogeneousClass(IPersistentVector v, int n) {
@@ -622,6 +630,13 @@ public final class Writer implements AutoCloseable {
             wr.writeAny(k);
             wr.writeAny(v);
             return wr;
+        }
+    };
+
+    private static final IFn VEC_WRITER = new AFn() {
+        @Override public Object invoke(Object w, Object x) {
+            ((Writer) w).writeAny(x);
+            return w;
         }
     };
 
