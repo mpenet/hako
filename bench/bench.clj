@@ -44,6 +44,22 @@
 (defn- safe [f payload]
   (try (f payload) (catch Exception _ nil)))
 
+;; criterium quick-bench spends 5s of JIT warmup per call — ~80% of its
+;; runtime. Every library fn here is benched 9 payloads × several
+;; variants in one process, so the code is C2-hot after the first
+;; payload; 1.5s re-stabilizes the fresh per-call lambda. Sample count
+;; and per-sample execution time (what the statistics actually depend
+;; on) match quick-bench defaults.
+(def ^:private bench-opts
+  {:warmup-jit-period (long (* 1.5 1e9))
+   :samples 6
+   :target-execution-time (long (* 100 1e6))
+   :tail-quantile 0.025
+   :bootstrap-size 500})
+
+(defmacro ^:private qb [expr]
+  `(c/report-result (c/quick-benchmark ~expr bench-opts)))
+
 (defn- seg->bytes ^bytes [^MemorySegment seg]
   (let [n (.byteSize seg)
         arr (byte-array n)]
@@ -65,27 +81,27 @@
              " nippy-fast:" (alength nippy-fast-enc)
              " deed:" (alength deed-enc)
              " transit:" (if transit-enc (alength transit-enc) "n/a"))
-    (println "  hako encode (→byte[]):")     (c/quick-bench (hako/encode payload))
+    (println "  hako encode (→byte[]):")     (qb (hako/encode payload))
     (println "  hako encode-to-seg (per-call arena):")
-    (c/quick-bench (with-open [a (Arena/ofConfined)] (hako/encode-to-segment a payload)))
+    (qb (with-open [a (Arena/ofConfined)] (hako/encode-to-segment a payload)))
     (println "  hako⤾ encode-into! (→segment, reused):")
-    (c/quick-bench (hako/encode-into! reused-wr payload))
+    (qb (hako/encode-into! reused-wr payload))
     (println "  hako⤾ encode→byte[] (reused + copy):")
-    (c/quick-bench (seg->bytes (hako/encode-into! reused-wr payload)))
-    (println "  nippy encode:")       (c/quick-bench (nippy/freeze payload))
-    (println "  nippy-fast encode:")  (c/quick-bench (nippy/fast-freeze payload))
-    (println "  deed encode:")        (c/quick-bench (deed/encode-to-bytes payload))
+    (qb (seg->bytes (hako/encode-into! reused-wr payload)))
+    (println "  nippy encode:")       (qb (nippy/freeze payload))
+    (println "  nippy-fast encode:")  (qb (nippy/fast-freeze payload))
+    (println "  deed encode:")        (qb (deed/encode-to-bytes payload))
     (when transit-enc
-      (println "  transit encode:")   (c/quick-bench (transit-encode payload)))
+      (println "  transit encode:")   (qb (transit-encode payload)))
     (println "  hako decode (byte[] source):")
-    (c/quick-bench (hako/decode hako-enc {:cache-idents true}))
+    (qb (hako/decode hako-enc {:cache-idents true}))
     (println "  hako⤾ decode-into! (segment source, reused):")
-    (c/quick-bench (hako/decode-into! reused-rd hako-seg {:cache-idents true}))
-    (println "  nippy decode:")       (c/quick-bench (nippy/thaw nippy-enc))
-    (println "  nippy-fast decode:")  (c/quick-bench (nippy/fast-thaw nippy-fast-enc))
-    (println "  deed decode:")        (c/quick-bench (deed/decode-from deed-enc))
+    (qb (hako/decode-into! reused-rd hako-seg {:cache-idents true}))
+    (println "  nippy decode:")       (qb (nippy/thaw nippy-enc))
+    (println "  nippy-fast decode:")  (qb (nippy/fast-thaw nippy-fast-enc))
+    (println "  deed decode:")        (qb (deed/decode-from deed-enc))
     (when transit-enc
-      (println "  transit decode:")   (c/quick-bench (transit-decode transit-enc)))
+      (println "  transit decode:")   (qb (transit-decode transit-enc)))
     (.close reused-wr)))
 
 (defn -main [& args]
