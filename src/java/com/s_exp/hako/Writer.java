@@ -795,9 +795,14 @@ public final class Writer implements AutoCloseable {
         // IPersistentSet/Map/Vector dispatch below since PersistentTreeSet
         // implements IPersistentSet, PersistentTreeMap implements
         // IPersistentMap, and PersistentQueue implements IPersistentList.
-        if (v instanceof PersistentTreeSet) { writeSortedSet((PersistentTreeSet) v); return; }
-        if (v instanceof PersistentTreeMap) { writeSortedMap((PersistentTreeMap) v); return; }
-        if (v instanceof PersistentQueue)   { writeQueue((PersistentQueue) v); return; }
+        // Use exact-class comparison (single ref compare + branch) instead
+        // of three `instanceof` checks so the common case (PersistentArrayMap,
+        // PersistentHashMap, PersistentVector, etc.) skips this branch in
+        // one comparison of `Class` refs.
+        Class<?> klass = v.getClass();
+        if (klass == PersistentTreeSet.class) { writeSortedSet((PersistentTreeSet) v); return; }
+        if (klass == PersistentTreeMap.class) { writeSortedMap((PersistentTreeMap) v); return; }
+        if (klass == PersistentQueue.class)   { writeQueue((PersistentQueue) v); return; }
 
         // User-tag registrations win over generic collection / sequence
         // dispatch — otherwise a registered SpillableVector /
@@ -805,7 +810,7 @@ public final class Writer implements AutoCloseable {
         // encode as a vector / list / map / set and lose its type on
         // decode. `UserTagRegistry.has` is a `ClassValue` slot after
         // the first hit — ~1 ns per call.
-        if (UserTagRegistry.has(v.getClass())) {
+        if (UserTagRegistry.has(klass)) {
             fallback(v);
             return;
         }

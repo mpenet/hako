@@ -39,7 +39,7 @@ Encode into a segment allocated inside caller-supplied `arena`. The
 returned segment invalidates when `arena` closes. Options same as
 `encode`. See [Arenas](arenas.md).
 
-### `writer` / `encode-into!`
+### `writer` / `encode-into!` / `encode-into-buffer!`
 
 ```clj
 (writer)                                 ; -> Writer  (initial-size = 4096)
@@ -47,22 +47,39 @@ returned segment invalidates when `arena` closes. Options same as
 
 (encode-into! wr value)                  ; -> MemorySegment (slice)
 (encode-into! wr value opts)             ; -> MemorySegment (slice)
+
+(encode-into-buffer! wr dst value)       ; -> byte count written
+(encode-into-buffer! wr dst value opts)  ; -> byte count written
 ```
 
 Reusable Writer. `Writer` implements `AutoCloseable`; wrap in
 `with-open`. The returned slice is valid until the next
 `encode-into!` call. Options same as `encode`.
 
-### `encode-many`
+`encode-into-buffer!` copies the encoded bytes directly into `dst`
+(a `byte[]` or `ByteBuffer`), skipping the ~40 B `MemorySegment.asSlice`
+wrapper that `encode-into!` returns. `dst` must be at least the encoded
+size; caller is responsible for sizing. Heap `byte[]` / `ByteBuffer`
+targets are zero-alloc; direct `ByteBuffer` targets allocate a
+`MemorySegment.ofBuffer` wrapper (~8 B). Returns the byte count.
+
+### `encode-many` / `encode-many-into!`
 
 ```clj
 (encode-many values)                     ; -> byte[]
 (encode-many values opts)                ; -> byte[]
+
+(encode-many-into! wr values)            ; -> MemorySegment (slice)
+(encode-many-into! wr values opts)       ; -> MemorySegment (slice)
 ```
 
 Encode many values with **one shared symbol table**. Single envelope,
 concatenated encoded values. Options same as `encode`, plus opts
 carry through to each value.
+
+`encode-many-into!` uses a reusable Writer — skips the ~500 B
+per-call Writer construction that `encode-many` pays. Same slice
+lifecycle as `encode-into!`.
 
 ### `decode`
 
@@ -122,6 +139,30 @@ immediately. Options same as `decode`.
 
 Reusable Reader. `.reset(newSeg)` rebinds internally. Options
 same as `decode`.
+
+### `encode-pooled` / `decode-pooled` / `close-thread-locals!`
+
+```clj
+(encode-pooled value)                    ; -> byte[]
+(encode-pooled value opts)               ; -> byte[]
+
+(decode-pooled src)                      ; -> value
+(decode-pooled src opts)                 ; -> value
+
+(close-thread-locals!)                   ; -> nil
+```
+
+Opt-in ThreadLocal-backed variants of `encode` / `decode`. Skip
+the per-call Writer / Reader construction (~500 B / ~250 B). Same
+options + return shape as the non-pooled versions.
+
+**Cleanup:** on short-lived threads or in servlet containers, call
+`close-thread-locals!` at thread exit / request boundary to release
+the pooled Writer's confined Arena and drop scratch buffers.
+Long-lived pooled worker threads never need cleanup — the pool
+amortises setup cost over the thread lifetime. Long-strings decode
+uses a 1 MiB scratch cap (above that, one-shot alloc) so a
+pathological large-string decode won't pin memory.
 
 ## `s-exp.hako.ext`
 

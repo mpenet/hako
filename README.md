@@ -71,9 +71,21 @@ Pre-release, alpha.
       ;; overwritten on the next encode-into!
       ...)))
 
+;; Zero-alloc write straight into a caller-owned buffer (byte[] or
+;; ByteBuffer). Skips the MemorySegment.asSlice wrapper — useful for
+;; direct-to-LMDB / socket / mmap paths.
+(hako/encode-into-buffer! wr dst value)   ; -> byte count written
+
 ;; Batch API — multiple values share one symbol table:
 (hako/encode-many [{:a 1} {:a 2} {:a 3}])
 ;; keyword :a is encoded once, symref'd twice.
+
+;; Batch encode into a reusable writer (skips the ~500 B Writer setup
+;; that `encode-many` pays per call):
+(hako/encode-many-into! wr [{:a 1} {:a 2} {:a 3}])   ; -> MemorySegment
+
+;; Pooled convenience — ThreadLocal-backed writer, opt-in:
+(hako/encode-pooled value)                ; -> byte[], zero setup alloc after warmup
 
 ;; Transducer-friendly decode over a batch stream:
 (into #{} (filter :active) (hako/decoder bs))
@@ -99,6 +111,15 @@ Pre-release, alpha.
 ;; Reusable reader:
 (let [rd (hako/reader some-src)]
   (hako/decode-into! rd another-src))
+
+;; Pooled convenience — ThreadLocal-backed reader, opt-in.
+;; Skips the ~250 B per-call Reader alloc.
+(hako/decode-pooled bs)
+
+;; Cleanup for short-lived / servlet-container threads that use the
+;; pooled variants. Closes the pooled Writer's confined Arena and
+;; drops scratch buffers. Long-lived pooled threads never need this.
+(hako/close-thread-locals!)
 
 ;; Batch — inverse of encode-many, returns a vector of values:
 (hako/decode-many bs)
@@ -288,15 +309,15 @@ columns show what each additional convenience costs.
 
 | payload              | `encode-into!` →seg | `encode-into!` →byte[] | `encode` →byte[] | `encode-to-segment` →seg |
 |----------------------|--------------------:|-----------------------:|-----------------:|-------------------------:|
-| `long-array-1k`      |             0.20 µs |                0.77 µs |          0.88 µs |                  0.61 µs |
-| `double-array-1k`    |             0.19 µs |                0.74 µs |          0.89 µs |                  0.61 µs |
-| `string-100`         |             0.04 µs |                0.05 µs |          0.10 µs |                  0.13 µs |
-| `small-map`          |             0.10 µs |                0.11 µs |          0.19 µs |                  0.22 µs |
-| `mixed`              |             0.21 µs |                0.24 µs |          0.34 µs |                  0.39 µs |
-| `string-10k`         |             0.75 µs |                1.18 µs |          1.53 µs |                  1.26 µs |
-| `vec-of-strings`     |             1.51 µs |                1.56 µs |          1.83 µs |                  1.88 µs |
-| `nested-map` (50 kw) |             3.37 µs |                3.42 µs |          4.29 µs |                  4.29 µs |
-| `vec-of-longs` (1k)  |             7.19 µs |                7.34 µs |          7.78 µs |                  7.86 µs |
+| `long-array-1k`      |             0.21 µs |                0.74 µs |          0.90 µs |                  0.65 µs |
+| `double-array-1k`    |             0.20 µs |                0.71 µs |          0.86 µs |                  0.62 µs |
+| `string-100`         |             0.03 µs |                0.05 µs |          0.10 µs |                  0.14 µs |
+| `small-map`          |             0.11 µs |                0.12 µs |          0.20 µs |                  0.28 µs |
+| `mixed`              |             0.21 µs |                0.22 µs |          0.29 µs |                  0.39 µs |
+| `string-10k`         |             0.77 µs |                1.11 µs |          1.52 µs |                  1.23 µs |
+| `vec-of-strings`     |             1.24 µs |                1.23 µs |          1.48 µs |                  1.54 µs |
+| `nested-map` (50 kw) |             3.94 µs |                3.99 µs |          4.62 µs |                  4.68 µs |
+| `vec-of-longs` (1k)  |             5.39 µs |                5.50 µs |          5.96 µs |                  6.09 µs |
 
 The segment-out path wins by 3.5–5× on prim arrays, 2× on
 long strings, and matches the byte[] paths on collection payloads
@@ -306,15 +327,15 @@ long strings, and matches the byte[] paths on collection payloads
 
 | payload              | `encode-into!` →seg |   nippy | nippy-fast |    deed | transit | vs nippy-fast |
 |----------------------|--------------------:|--------:|-----------:|--------:|--------:|--------------:|
-| `long-array-1k`      |             0.20 µs | 19.6 µs |    19.7 µs | 11.2 µs | 22.2 µs |         100× |
-| `double-array-1k`    |             0.19 µs | 22.5 µs |    10.9 µs | 10.9 µs | 24.5 µs |          57× |
-| `string-100`         |             0.04 µs | 0.12 µs |    0.07 µs | 0.42 µs |  3.0 µs |         2.0× |
-| `small-map`          |             0.10 µs | 0.31 µs |    0.25 µs | 0.63 µs |  3.6 µs |         2.5× |
-| `mixed`              |             0.21 µs | 0.58 µs |    0.55 µs | 0.88 µs |  4.2 µs |         2.6× |
-| `string-10k`         |             0.75 µs |  2.8 µs |     1.1 µs |  2.3 µs |  4.6 µs |         1.5× |
-| `vec-of-strings`     |             1.51 µs | 2.24 µs |    2.23 µs | 3.90 µs | 7.13 µs |         1.5× |
-| `nested-map` (50 kw) |             3.37 µs | 10.4 µs |    10.3 µs | 16.6 µs | 37.2 µs |         3.0× |
-| `vec-of-longs` (1k)  |             7.19 µs | 19.4 µs |    19.0 µs | 21.7 µs | 32.6 µs |         2.6× |
+| `long-array-1k`      |             0.21 µs | 20.0 µs |    19.8 µs | 11.2 µs | 22.0 µs |          94× |
+| `double-array-1k`    |             0.20 µs | 22.6 µs |    10.9 µs | 10.8 µs | 23.5 µs |          54× |
+| `string-100`         |             0.03 µs | 0.12 µs |    0.07 µs | 0.42 µs |  3.0 µs |         2.1× |
+| `small-map`          |             0.11 µs | 0.32 µs |    0.26 µs | 0.63 µs |  3.6 µs |         2.3× |
+| `mixed`              |             0.21 µs | 0.62 µs |    0.55 µs | 0.83 µs |  4.0 µs |         2.7× |
+| `string-10k`         |             0.77 µs |  2.8 µs |     1.2 µs |  2.2 µs |  4.6 µs |         1.5× |
+| `vec-of-strings`     |             1.24 µs | 2.35 µs |    2.34 µs | 3.80 µs | 7.07 µs |         1.9× |
+| `nested-map` (50 kw) |             3.94 µs | 10.4 µs |    10.7 µs | 16.8 µs | 37.0 µs |         2.7× |
+| `vec-of-longs` (1k)  |             5.39 µs | 20.4 µs |    20.0 µs | 21.5 µs | 31.6 µs |         3.7× |
 
 `encode-into!` →seg leads every cell — including `string-10k`
 where the byte[]-output paths lose to `nippy-fast`.
@@ -328,15 +349,15 @@ source, wrapped via `MemorySegment/ofArray` internally) and reused
 
 | payload              | `decode-into!` →seg src | `decode` →byte[] src |   nippy | nippy-fast |    deed | transit | vs nippy-fast |
 |----------------------|------------------------:|---------------------:|--------:|-----------:|--------:|--------:|--------------:|
-| `long-array-1k`      |                 0.58 µs |              0.62 µs | 12.3 µs |    12.0 µs | 10.9 µs |  201 µs |          21× |
-| `double-array-1k`    |                 0.59 µs |              0.60 µs | 12.6 µs |     8.3 µs | 10.8 µs |  181 µs |          14× |
-| `string-100`         |                 0.05 µs |              0.06 µs | 0.10 µs |    0.05 µs | 0.57 µs |  2.9 µs |         1.1× |
-| `small-map`          |                 0.14 µs |              0.24 µs | 0.40 µs |    0.34 µs | 0.77 µs |  3.2 µs |         2.4× |
-| `mixed`              |                 0.32 µs |              0.28 µs | 0.75 µs |    0.67 µs |  1.4 µs |  4.6 µs |         2.1× |
-| `string-10k`         |                 0.87 µs |              1.10 µs |  3.7 µs |     1.1 µs |  1.7 µs |  5.8 µs |         1.3× |
-| `vec-of-strings`     |                 2.98 µs |              3.01 µs | 3.81 µs |    3.22 µs | 7.76 µs | 18.2 µs |         1.1× |
-| `nested-map` (50 kw) |                 5.62 µs |              5.75 µs | 14.8 µs |    14.8 µs | 25.6 µs | 60.9 µs |         2.6× |
-| `vec-of-longs` (1k)  |                11.94 µs |             11.70 µs | 13.8 µs |    13.6 µs | 25.4 µs |  198 µs |         1.14× |
+| `long-array-1k`      |                 0.57 µs |              0.62 µs | 11.9 µs |    11.9 µs | 10.7 µs |  194 µs |          21× |
+| `double-array-1k`    |                 0.58 µs |              0.59 µs | 12.3 µs |     8.3 µs | 10.8 µs |  179 µs |          14× |
+| `string-100`         |                 0.05 µs |              0.06 µs | 0.10 µs |    0.05 µs | 0.56 µs |  2.8 µs |         1.0× |
+| `small-map`          |                 0.14 µs |              0.23 µs | 0.39 µs |    0.32 µs | 0.78 µs |  3.2 µs |         2.3× |
+| `mixed`              |                 0.32 µs |              0.28 µs | 0.64 µs |    0.60 µs |  1.4 µs |  4.5 µs |         1.9× |
+| `string-10k`         |                 0.94 µs |              1.11 µs |  3.7 µs |     1.1 µs |  1.77 µs |  5.69 µs |         1.2× |
+| `vec-of-strings`     |                 2.51 µs |              2.55 µs | 3.75 µs |    3.64 µs | 8.33 µs | 18.5 µs |         1.4× |
+| `nested-map` (50 kw) |                 5.75 µs |              5.82 µs | 18.4 µs |    18.8 µs | 25.7 µs | 54.8 µs |         3.3× |
+| `vec-of-longs` (1k)  |                11.52 µs |             11.33 µs | 11.7 µs |    11.6 µs | 25.3 µs |  195 µs |         1.0× |
 
 `decode-into!` →seg src leads every cell. `nippy-fast` stays within
 2 ns on `string-100` — its `readUTF` intrinsic is hard to beat on
