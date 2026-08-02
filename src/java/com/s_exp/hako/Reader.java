@@ -676,7 +676,7 @@ public final class Reader {
         Object[] args = new Object[(int) n];
         for (int i = 0; i < n; i++) args[i] = readAny();
         try {
-            return info.ctorMH().invokeWithArguments(args);
+            return (Object) info.spreadCtorMH().invokeExact(args);
         } catch (Throwable t) {
             throw new IllegalStateException("hako: record ctor failed", t);
         }

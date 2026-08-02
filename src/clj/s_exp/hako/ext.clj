@@ -66,6 +66,9 @@
       (throw (ex-info "hako: canonical ctor not found for record"
                       {:class (.getName klass) :field-count n}))))
 
+(def ^:private object-array-class
+  (Class/forName "[Ljava.lang.Object;"))
+
 (defn- java-record-accessor-mhs
   "MethodHandle per Java record accessor. Adapted to `(Object) -> Object`
   so the Writer can use `invokeExact` with no Object[] wrapper alloc."
@@ -100,12 +103,21 @@
                                             ^"[Ljava.lang.Class;"
                                             (into-array Class (repeat n Object)))
         ctor-mh (MethodHandles/explicitCastArguments raw-mh ctor-generic)
+        ;; Spread-adapted variant with return type widened to Object so
+        ;; the reader can call `.invokeExact(args)` — skips the varargs
+        ;; walk that `MethodHandle.invokeWithArguments` pays per record.
+        spread-mt (MethodType/methodType Object
+                                         ^"[Ljava.lang.Class;"
+                                         (into-array Class (repeat n Object)))
+        spread-ctor-mh (-> raw-mh
+                           (MethodHandles/explicitCastArguments spread-mt)
+                           (.asSpreader object-array-class (int n)))
         field-kws (when-not java-rec?
                     (into-array Keyword (map keyword field-names)))
         accessor-mhs (when java-rec?
                        (into-array MethodHandle (java-record-accessor-mhs klass)))
         info (RecordInfo. klass (.getName klass) (int n) (boolean java-rec?)
-                          field-kws accessor-mhs ctor-mh)]
+                          field-kws accessor-mhs ctor-mh spread-ctor-mh)]
     (RecordRegistry/put info)
     klass))
 
