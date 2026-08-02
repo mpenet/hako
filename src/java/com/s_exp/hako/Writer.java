@@ -342,11 +342,50 @@ public final class Writer implements AutoCloseable {
         putByte(Format.tag(Format.M_SPEC, Format.SPEC_FALSE));
     }
 
+    // Scalar emitters fuse tag byte + payload into a single ensure()
+    // and positional writes — one bounds check per value instead of
+    // one per put call. Benched -4..-7% on numeric payloads (AC power;
+    // battery throttling produces misleading numbers on this path).
+
     public void writeLong(long n) {
+        int major;
+        long u;
         if (n >= 0) {
-            putSizedTag(Format.M_UINT, n);
+            major = Format.M_UINT;
+            u = n;
         } else {
-            putSizedTag(Format.M_SINT, Format.zigZagEncode(n));
+            major = Format.M_SINT;
+            u = Format.zigZagEncode(n);
+        }
+        int code = Format.tierCode(u);
+        switch (code) {
+            case Format.TIER_U8:
+                ensure(2);
+                seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(major, code));
+                seg.set(ValueLayout.JAVA_BYTE, pos + 1, (byte) u);
+                pos += 2;
+                break;
+            case Format.TIER_U16:
+                ensure(3);
+                seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(major, code));
+                seg.set(Format.LE_SHORT, pos + 1, (short) u);
+                pos += 3;
+                break;
+            case Format.TIER_U32:
+                ensure(5);
+                seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(major, code));
+                seg.set(Format.LE_INT, pos + 1, (int) u);
+                pos += 5;
+                break;
+            case Format.TIER_U64:
+                ensure(9);
+                seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(major, code));
+                seg.set(Format.LE_LONG, pos + 1, u);
+                pos += 9;
+                break;
+            default:  // inline tier, tag byte only
+                putByte(Format.tag(major, code));
+                break;
         }
     }
 
@@ -363,16 +402,25 @@ public final class Writer implements AutoCloseable {
             putByte(Format.tag(Format.M_SPEC, Format.SPEC_NINF));
             return;
         }
-        putByte(Format.tag(Format.M_FLOAT, Format.FLOAT_F64));
-        putF64(d);
+        ensure(9);
+        seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(Format.M_FLOAT, Format.FLOAT_F64));
+        seg.set(Format.LE_DOUBLE, pos + 1, d);
+        pos += 9;
     }
 
     public void writeFloat(float f) {
-        putByte(Format.tag(Format.M_FLOAT, Format.FLOAT_F32));
-        putF32(f);
+        ensure(5);
+        seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(Format.M_FLOAT, Format.FLOAT_F32));
+        seg.set(Format.LE_FLOAT, pos + 1, f);
+        pos += 5;
     }
 
     public void writeString(String s) {
+        // Note: a zero-alloc scratch-buffer encode (per-char ASCII copy)
+        // was benched at 3-8x slower than getBytes — the JDK intrinsifies
+        // UTF-8 encoding of compact strings into a vectorized copy that
+        // no userland char loop can match. The transient byte[] is the
+        // cheaper trade.
         byte[] bs = s.getBytes(StandardCharsets.UTF_8);
         putSizedTag(Format.M_STRING, bs.length);
         putBytes(bs);
@@ -384,25 +432,33 @@ public final class Writer implements AutoCloseable {
     }
 
     public void writeUuid(long msb, long lsb) {
-        putByte(Format.tag(Format.M_SPEC, Format.SPEC_UUID));
-        putU64(msb);
-        putU64(lsb);
+        ensure(17);
+        seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(Format.M_SPEC, Format.SPEC_UUID));
+        seg.set(Format.LE_LONG, pos + 1, msb);
+        seg.set(Format.LE_LONG, pos + 9, lsb);
+        pos += 17;
     }
 
     public void writeInstant(long epochSec, int nano) {
-        putByte(Format.tag(Format.M_SPEC, Format.SPEC_INST));
-        putI64(epochSec);
-        putU32(nano);
+        ensure(13);
+        seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(Format.M_SPEC, Format.SPEC_INST));
+        seg.set(Format.LE_LONG, pos + 1, epochSec);
+        seg.set(Format.LE_INT, pos + 9, nano);
+        pos += 13;
     }
 
     public void writeChar(int codeUnit) {
-        putByte(Format.tag(Format.M_SPEC, Format.SPEC_CHAR));
-        putU16(codeUnit);
+        ensure(3);
+        seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(Format.M_SPEC, Format.SPEC_CHAR));
+        seg.set(Format.LE_SHORT, pos + 1, (short) codeUnit);
+        pos += 3;
     }
 
     public void writeDate(long epochMillis) {
-        putByte(Format.tag(Format.M_SPEC, Format.SPEC_DATE));
-        putI64(epochMillis);
+        ensure(9);
+        seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.tag(Format.M_SPEC, Format.SPEC_DATE));
+        seg.set(Format.LE_LONG, pos + 1, epochMillis);
+        pos += 9;
     }
 
     public void writeLongArray(long[] arr) {
@@ -596,19 +652,43 @@ public final class Writer implements AutoCloseable {
 
     private void writeVectorAny(IPersistentVector v) {
         int n = v.count();
+        // Single-pass homogeneity detection: optimistically unbox into
+        // the prim array and bail to the generic path on first mismatch.
+        // Success costs one walk (previous detect-then-fill cost two).
+        // A short probe runs before the array alloc so the common
+        // mismatch case (heterogeneous head) bails allocation-free.
         if (packHomogeneous && n > 0) {
-            Class<?> homo = homogeneousClass(v, n);
-            if (homo == Long.class) {
-                long[] arr = new long[n];
-                for (int i = 0; i < n; i++) arr[i] = (Long) v.nth(i);
-                writeLongArray(arr);
-                return;
-            }
-            if (homo == Double.class) {
-                double[] arr = new double[n];
-                for (int i = 0; i < n; i++) arr[i] = (Double) v.nth(i);
-                writeDoubleArray(arr);
-                return;
+            Object first = v.nth(0);
+            boolean isLong = first instanceof Long;
+            if (isLong || first instanceof Double) {
+                int probe = Math.min(n, 16);
+                int j = 1;
+                if (isLong) {
+                    for (; j < probe; j++) if (!(v.nth(j) instanceof Long)) break;
+                } else {
+                    for (; j < probe; j++) if (!(v.nth(j) instanceof Double)) break;
+                }
+                if (j == probe) {
+                    if (isLong) {
+                        long[] arr = new long[n];
+                        int i = 0;
+                        for (; i < n; i++) {
+                            Object x = v.nth(i);
+                            if (!(x instanceof Long)) break;
+                            arr[i] = (Long) x;
+                        }
+                        if (i == n) { writeLongArray(arr); return; }
+                    } else {
+                        double[] arr = new double[n];
+                        int i = 0;
+                        for (; i < n; i++) {
+                            Object x = v.nth(i);
+                            if (!(x instanceof Double)) break;
+                            arr[i] = (Double) x;
+                        }
+                        if (i == n) { writeDoubleArray(arr); return; }
+                    }
+                }
             }
         }
         writeVectorHeader(n);
@@ -620,16 +700,6 @@ public final class Writer implements AutoCloseable {
         } else {
             for (int i = 0; i < n; i++) writeAny(v.nth(i));
         }
-    }
-
-    private static Class<?> homogeneousClass(IPersistentVector v, int n) {
-        Object first = v.nth(0);
-        if (!(first instanceof Long) && !(first instanceof Double)) return null;
-        Class<?> target = first.getClass();
-        for (int i = 1; i < n; i++) {
-            if (v.nth(i).getClass() != target) return null;
-        }
-        return target;
     }
 
     private static final IFn KV_WRITER = new AFn() {
@@ -717,21 +787,47 @@ public final class Writer implements AutoCloseable {
         while (it.hasNext()) writeAny(it.next());
     }
 
+    /**
+     * Emit a list header with a fixed u32 tier and a placeholder count,
+     * returning the offset to backpatch once the element count is known.
+     * Same pattern as {@link #beginUserTag}. Costs 5 header bytes even
+     * for small counts, but lets unknown-length sequences stream in a
+     * single pass with no intermediate materialization.
+     */
+    private long beginStreamingList() {
+        putByte(Format.tag(Format.M_LIST, Format.TIER_U32));
+        long mark = pos;
+        ensure(4);
+        pos += 4;
+        return mark;
+    }
+
+    private void endStreamingList(long mark, long n) {
+        if (n > Integer.MAX_VALUE) {
+            throw new IllegalStateException(
+                "hako: seq count exceeds Integer/MAX_VALUE (" + n + ")");
+        }
+        seg.set(Format.LE_INT, mark, (int) n);
+    }
+
     private void writeSeqAny(ISeq s) {
         // Counted → single-pass with known count (PersistentList, etc.).
-        // Lazy/chunked seqs: fall through to materialize — a second walk
-        // over LazySeq/ChunkedSeq re-allocates wrapper Cons per chunk.
         if (s instanceof Counted) {
             int n = ((Counted) s).count();
             writeListHeader(n);
             for (ISeq cur = s.seq(); cur != null; cur = cur.next()) writeAny(cur.first());
             return;
         }
-        java.util.ArrayList<Object> tmp = new java.util.ArrayList<>();
-        for (ISeq cur = s.seq(); cur != null; cur = cur.next()) tmp.add(cur.first());
-        int n = tmp.size();
-        writeListHeader(n);
-        for (int i = 0; i < n; i++) writeAny(tmp.get(i));
+        // Lazy/chunked seqs: stream elements and backpatch the count —
+        // no ArrayList materialization, and already-encoded prefixes
+        // become GC-able as the walk advances.
+        long mark = beginStreamingList();
+        long n = 0;
+        for (ISeq cur = s.seq(); cur != null; cur = cur.next()) {
+            writeAny(cur.first());
+            n++;
+        }
+        endStreamingList(mark, n);
     }
 
     private void writeIterableAny(Iterable<?> it) {
@@ -741,11 +837,13 @@ public final class Writer implements AutoCloseable {
             for (Object x : c) writeAny(x);
             return;
         }
-        java.util.ArrayList<Object> tmp = new java.util.ArrayList<>();
-        for (Object x : it) tmp.add(x);
-        int n = tmp.size();
-        writeListHeader(n);
-        for (int i = 0; i < n; i++) writeAny(tmp.get(i));
+        long mark = beginStreamingList();
+        long n = 0;
+        for (Object x : it) {
+            writeAny(x);
+            n++;
+        }
+        endStreamingList(mark, n);
     }
 
     // -- Top-level dispatch (hot path) -------------------------------------
@@ -755,14 +853,11 @@ public final class Writer implements AutoCloseable {
      * {@link UnknownHandler} for records, sorted collections, queues,
      * user-tagged types, or anything else outside the built-in set.
      *
-     * <p><b>Seq / Iterable gotcha</b>: the wire format requires a
-     * count prefix, so any {@code ISeq} or non-{@code Collection}
-     * {@code Iterable} is first materialized into a temporary
-     * {@code ArrayList} to determine its length. For very long lazy
-     * seqs this defeats laziness and holds the whole sequence in
-     * memory during encode. Prefer a concrete {@code IPersistentVector}
-     * / {@code IPersistentList} / {@code IPersistentSet} when the
-     * length is known cheaply.
+     * <p><b>Seq / Iterable note</b>: unknown-length {@code ISeq}s and
+     * non-{@code Collection} {@code Iterable}s stream in a single pass
+     * with a backpatched count — laziness is preserved (encoded
+     * prefixes become GC-able as the walk advances) at the cost of a
+     * fixed 5-byte header regardless of element count.
      */
     public void writeAny(Object v) {
         writeAnyInner(v, false);
@@ -792,6 +887,15 @@ public final class Writer implements AutoCloseable {
             return;
         }
         if (v instanceof String) { writeString((String) v); return; }
+
+        // Boxed scalars can never be records / sorted colls / queues /
+        // collections, so they are dispatched before those checks —
+        // saves ~9 type tests per Boolean/Double/Integer in mixed data.
+        // Consequence: a user-tag registered on a boxed scalar class
+        // (pathological) is not honored — the built-in encoding wins.
+        if (v instanceof Boolean) { if ((Boolean) v) writeTrue(); else writeFalse(); return; }
+        if (v instanceof Double)  { writeDouble((Double) v); return; }
+        if (v instanceof Integer) { writeLong((Integer) v); return; }
 
         // Records dispatch straight to the Java write path — skip the
         // Clojure fallback handler.
@@ -832,10 +936,7 @@ public final class Writer implements AutoCloseable {
             return;
         }
 
-        if (v instanceof Boolean) { if ((Boolean) v) writeTrue(); else writeFalse(); return; }
-        if (v instanceof Double)  { writeDouble((Double) v); return; }
         if (v instanceof Float)   { writeFloat((Float) v); return; }
-        if (v instanceof Integer) { writeLong((Integer) v); return; }
         if (v instanceof Short)   { writeLong((Short) v); return; }
         if (v instanceof Byte)    { writeLong((Byte) v); return; }
         if (v instanceof Character) { writeChar(((Character) v).charValue()); return; }

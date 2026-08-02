@@ -4,7 +4,8 @@
            (com.s_exp.hako RecordInfo RecordRegistry)
            (java.lang.foreign MemorySegment)
            (java.lang.invoke MethodHandle MethodHandles MethodType)
-           (java.lang.reflect Constructor)))
+           (java.lang.reflect Constructor)
+           (java.util.concurrent ConcurrentHashMap)))
 
 (set! *warn-on-reflection* true)
 
@@ -139,8 +140,11 @@
 ;; read-fn signature:  (fn [Reader])        — parse one value from the
 ;;                                            length-bounded payload.
 
-(def ^:private user-tag-registry
-  (atom {:by-class {} :by-id {}}))
+;; Hot-path storage: encode does one CHM get per user-tag value, decode
+;; one CHM get per user-tag frame. The previous atom-of-nested-maps cost
+;; a deref + two persistent-map lookups per value.
+(def ^:private ^ConcurrentHashMap user-tags-by-class (ConcurrentHashMap.))
+(def ^:private ^ConcurrentHashMap user-tags-by-id (ConcurrentHashMap.))
 
 (def ^:private ^:const private-range-base 0x10000000)
 (def ^:private ^:const private-range-max  0x0FFFFFFF)
@@ -152,11 +156,8 @@
   [^long wire-id ^Class klass write-fn read-fn]
   (when (or (< wire-id 0) (> wire-id 0xFFFFFFFF))
     (throw (ex-info "user-tag id out of range (expected u32)" {:id wire-id})))
-  (swap! user-tag-registry
-         (fn [reg]
-           (-> reg
-               (assoc-in [:by-class klass] {:id wire-id :write-fn write-fn})
-               (assoc-in [:by-id wire-id] {:read-fn read-fn}))))
+  (.put user-tags-by-class klass {:id wire-id :write-fn write-fn})
+  (.put user-tags-by-id wire-id {:read-fn read-fn})
   (com.s_exp.hako.UserTagRegistry/add klass)
   wire-id)
 
@@ -176,7 +177,7 @@
   (register-user-tag-raw! (+ private-range-base id) klass write-fn read-fn))
 
 (defn user-tag-for-class [^Class klass]
-  (get-in @user-tag-registry [:by-class klass]))
+  (.get user-tags-by-class klass))
 
 (defn user-tag-reader [id]
-  (get-in @user-tag-registry [:by-id id]))
+  (.get user-tags-by-id (long id)))

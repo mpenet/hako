@@ -44,3 +44,28 @@
     (is (thrown-with-msg?
          Exception #"vector count exceeds Integer/MAX_VALUE"
          (hako/decode (craft-u64-vec-header (long (inc Integer/MAX_VALUE))))))))
+
+;; -- list count vs remaining-bytes guard -------------------------------------
+
+(defn- craft-u32-list-header
+  "Build envelope + `<list tag with u32 tier><u32 count LE>` bytes claiming
+  a count of `n` (no actual elements)."
+  ^bytes [^long n]
+  (let [buf (byte-array (+ 5 1 4))]
+    (aset-byte buf 0 (unchecked-byte 0x48))
+    (aset-byte buf 1 (unchecked-byte 0x41))
+    (aset-byte buf 2 (unchecked-byte 0x4B))
+    (aset-byte buf 3 (unchecked-byte 0x4F))
+    (aset-byte buf 4 (unchecked-byte 0x00))
+    (aset-byte buf 5 (unchecked-byte 0x8E))
+    (dotimes [i 4]
+      (aset-byte buf (+ 6 i) (unchecked-byte (bit-and (bit-shift-right n (* 8 i)) 0xFF))))
+    buf))
+
+(deftest list-count-prealloc-guard
+  (testing "list count exceeding remaining bytes fails fast, no Object[n] prealloc"
+    ;; count fits in an int (passes checkCount) but the message holds no
+    ;; elements — without the need(n) guard this attempts a ~2 GB alloc.
+    (is (thrown-with-msg?
+         Exception #"unexpected end of message"
+         (hako/decode (craft-u32-list-header (- Integer/MAX_VALUE 8)))))))

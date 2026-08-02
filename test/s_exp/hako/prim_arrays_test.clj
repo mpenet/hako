@@ -69,6 +69,11 @@
           packed (hako/encode v {:pack-homogeneous true})
           r (hako/decode packed)]
       (is (= v r))))
+  (testing "nil element falls back instead of NPE"
+    (let [v [1 2 nil 4]
+          packed (hako/encode v {:pack-homogeneous true})
+          r (hako/decode packed)]
+      (is (= v r))))
   (testing "opt off keeps mixed & homogeneous alike"
     (let [v [1 2 3]
           plain (hako/encode v)

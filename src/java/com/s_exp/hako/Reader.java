@@ -550,6 +550,10 @@ public final class Reader {
     private Object readList(int tierCode) {
         int n = (int) checkCount(readTierPayload(tierCode), "list count");
         if (n == 0) return PersistentList.EMPTY;
+        // Every element is at least 1 byte on the wire, so a count
+        // larger than the remaining bytes is malformed. Guards the
+        // Object[n] preallocation against crafted counts (OOM DoS).
+        need(n);
         Object[] arr = new Object[n];
         for (int i = 0; i < n; i++) arr[i] = readAny();
         // Cons backward from the array — skips `Arrays.asList` wrapper and

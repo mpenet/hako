@@ -236,3 +236,9 @@ Decoder MUST:
 - Reject unknown record classnames unless the class is in the reader's
   registry. No `Class.forName` on decoder input.
 - Never invoke arbitrary constructors from wire data.
+
+Duplicate keys within a single map (or duplicate elements within a set) are
+malformed input — conforming encoders never produce them. Decoder behavior on
+such input is undefined beyond memory safety: implementations MAY keep the
+first entry, the last entry, or both, and MUST NOT crash or over-allocate.
+Decoders are NOT required to pay a per-entry uniqueness check on the hot path.

@@ -29,7 +29,7 @@
 ;; -- User-tag handler --------------------------------------------------------
 
 (defn- read-user-tag! [^Reader r]
-  (let [id (bit-and (.getU32 r) 0xFFFFFFFF)
+  (let [id (.getU32 r)
         len (.readTierValue r)
         reader-info (ext/user-tag-reader id)]
     (cond

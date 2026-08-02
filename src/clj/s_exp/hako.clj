@@ -3,7 +3,7 @@
   (:require [s-exp.hako.reader :as r]
             [s-exp.hako.writer :as w])
   (:import (com.s_exp.hako Reader Writer)
-           (java.lang.foreign Arena MemorySegment ValueLayout)
+           (java.lang.foreign Arena MemorySegment)
            (java.nio ByteBuffer)))
 
 (set! *warn-on-reflection* true)
@@ -32,10 +32,8 @@
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (.writeAny wr value)
-       (let [seg (.finish wr)
-             n (.byteSize seg)
-             arr (byte-array n)]
-         (MemorySegment/copy seg ValueLayout/JAVA_BYTE 0 arr 0 n)
+       (let [arr (byte-array (.pos wr))]
+         (.copyTo wr arr 0)
          arr)
        (finally (.close wr))))))
 
@@ -153,13 +151,23 @@
 ;; (application worker pools, virtual-thread pools with reuse) can
 ;; ignore cleanup — the pool amortises the setup cost.
 
-(def ^:private ^ThreadLocal tl-reader
-  (proxy [ThreadLocal] []
-    (initialValue [] (reader (byte-array 0)))))
+;; No initialValue on purpose: `.get` returning nil lets
+;; `close-thread-locals!` detect "never used on this thread" without
+;; instantiating an instance just to close it.
+(def ^:private ^ThreadLocal tl-reader (ThreadLocal.))
+(def ^:private ^ThreadLocal tl-writer (ThreadLocal.))
 
-(def ^:private ^ThreadLocal tl-writer
-  (proxy [ThreadLocal] []
-    (initialValue [] (writer 4096))))
+(defn- pooled-reader ^Reader []
+  (or (.get tl-reader)
+      (let [rd (reader (byte-array 0))]
+        (.set tl-reader rd)
+        rd)))
+
+(defn- pooled-writer ^Writer []
+  (or (.get tl-writer)
+      (let [wr (writer 4096)]
+        (.set tl-writer wr)
+        wr)))
 
 (defn decode-pooled
   "Like `decode` but uses a thread-local reusable Reader. Skips the
@@ -170,7 +178,7 @@
   thread exit to avoid pinning the Reader + its scratch buffers. See
   the ns docstring for the trade-off."
   ([src] (decode-pooled src nil))
-  ([src opts] (decode-into! (.get tl-reader) src opts)))
+  ([src opts] (decode-into! (pooled-reader) src opts)))
 
 (defn encode-pooled
   "Like `encode` but uses a thread-local reusable Writer. The writer
@@ -182,21 +190,25 @@
   at thread exit to release the Writer's confined Arena."
   (^bytes [value] (encode-pooled value nil))
   (^bytes [value opts]
-   (let [wr ^Writer (.get tl-writer)
-         seg (encode-into! wr value opts)
-         n (.byteSize seg)
-         arr (byte-array n)]
-     (MemorySegment/copy seg ValueLayout/JAVA_BYTE 0 arr 0 n)
-     arr)))
+   (let [wr (pooled-writer)]
+     (.reset wr)
+     (.setWriteMeta wr (boolean (:preserve-meta opts)))
+     (.setPackHomogeneous wr (boolean (:pack-homogeneous opts)))
+     (.setCoerceCustomComparator wr (boolean (:coerce-custom-comparator opts)))
+     (.writeEnvelope wr)
+     (.writeAny wr value)
+     (let [arr (byte-array (.pos wr))]
+       (.copyTo wr arr 0)
+       arr))))
 
 (defn close-thread-locals!
   "Release the current thread's pooled Writer / Reader instances. Call
   at the end of a short-lived thread's work — closes the Writer's
   confined Arena and drops the Reader's scratch buffers. Idempotent."
   []
-  (when-let [wr ^Writer (.get tl-writer)]
-    (.close wr))
-  (.remove tl-writer)
+  (when-some [wr ^Writer (.get tl-writer)]
+    (.close wr)
+    (.remove tl-writer))
   (.remove tl-reader))
 
 (defn encode-many
@@ -217,10 +229,8 @@
        (w/install-handler! wr)
        (.writeEnvelope wr)
        (doseq [v values] (.writeAny wr v))
-       (let [seg (.finish wr)
-             n (.byteSize seg)
-             arr (byte-array n)]
-         (MemorySegment/copy seg ValueLayout/JAVA_BYTE 0 arr 0 n)
+       (let [arr (byte-array (.pos wr))]
+         (.copyTo wr arr 0)
          arr)
        (finally (.close wr))))))
 
