@@ -152,8 +152,9 @@ F6 F0 DE BC 9A 78 56 34 12 F0 DE BC 9A 78 56 34 12
 `(encode (long-array [1 2 3]))`:
 
 ```
-E5 03 01 00 ...  02 00 ...  03 00 ...
-├─ E5           = major=0xE (extension), low=0x05 (EXT_PRIM_LONGS)
+E0 05 03 01 00 ...  02 00 ...  03 00 ...
+├─ E0           = extension tag byte (major=0xE, low nibble always 0)
+├─ 05           = u8 subtype = EXT_PRIM_LONGS
 ├─ 03           = tier-value: inline count = 3
 └─ 3 × 8 bytes  = each i64 LE
 ```
@@ -171,8 +172,8 @@ Registration:
 Encoding a `URI` produces:
 
 ```
-EF <u32 id LE> 0E <u32 payload-length LE> <payload bytes>
-├─ EF        = major=0xE (ext), low=0x0F (user-tag)
+E0 0F <u32 id LE> 0E <u32 payload-length LE> <payload bytes>
+├─ E0 0F     = extension tag byte + u8 subtype 15 (user-tag)
 ├─ u32       = 0x10000001 (little-endian: 01 00 00 10)
 ├─ 0E        = tier code = TIER_U32 (always u32 for user-tag)
 ├─ u32       = payload length in bytes (little-endian)

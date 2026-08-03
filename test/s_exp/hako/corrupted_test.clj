@@ -64,16 +64,20 @@
 
 (deftest unknown-extension
   (testing "unknown built-in extension subtype (spec bug, strict throw)"
-    ;; Reserve subtypes 9-14 for future. 0xE9 is unassigned.
+    ;; Extension frame = 0xE0 + u8 subtype. Subtype 12 is reserved.
+    (let [bs (concat-bytes (envelope) (byte-array [0xE0 0x0C]))]
+      (is (thrown-with-msg? Exception #"unknown extension" (hako/decode bs)))))
+  (testing "extension tag with non-zero low nibble is malformed"
     (let [bs (concat-bytes (envelope) (byte-array [0xE9]))]
-      (is (thrown-with-msg? Exception #"unknown extension" (hako/decode bs))))))
+      (is (thrown-with-msg? Exception #"malformed extension" (hako/decode bs))))))
 
 (deftest unknown-user-tag-strict
   (testing "unregistered user-tag with strict decode throws"
-    ;; envelope + 0xEF + u32 id + u32 tier code (0x0E) + u32 length 0 + no payload
+    ;; envelope + 0xE0 + subtype 15 (user-tag) + u32 id
+    ;; + u32 tier code (0x0E) + u32 length 0 + no payload
     (let [id-bs (byte-array [0x00 0x01 0x02 0x03])
           bs (concat-bytes (envelope)
-                           (byte-array [0xEF])
+                           (byte-array [0xE0 0x0F])
                            id-bs
                            (byte-array [0x0E])                ; TIER_U32
                            (byte-array [0x00 0x00 0x00 0x00])  ; u32 length = 0
@@ -86,7 +90,7 @@
     (let [id-bs (byte-array [0x00 0x01 0x02 0x03])
           payload-bs (byte-array [0xAA 0xBB])
           bs (concat-bytes (envelope)
-                           (byte-array [0xEF])
+                           (byte-array [0xE0 0x0F])
                            id-bs
                            (byte-array [0x0E])
                            (byte-array [0x02 0x00 0x00 0x00])  ; u32 length = 2

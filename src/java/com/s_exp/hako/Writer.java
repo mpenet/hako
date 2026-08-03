@@ -322,6 +322,14 @@ public final class Writer implements AutoCloseable {
         }
     }
 
+    /** Emit an extension frame header: 0xE0 tag byte + u8 subtype. */
+    public void putExtTag(int subtype) {
+        ensure(2);
+        seg.set(ValueLayout.JAVA_BYTE, pos, (byte) Format.M_EXT);
+        seg.set(ValueLayout.JAVA_BYTE, pos + 1, (byte) subtype);
+        pos += 2;
+    }
+
     public void writeEnvelope() {
         putByte(Format.MAGIC_0);
         putByte(Format.MAGIC_1);
@@ -463,7 +471,7 @@ public final class Writer implements AutoCloseable {
 
     public void writeLongArray(long[] arr) {
         int n = arr.length;
-        putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_LONGS));
+        putExtTag(Format.EXT_PRIM_LONGS);
         putTierValue(n);
         long bytes = (long) n * 8L;
         ensure(bytes);
@@ -478,7 +486,7 @@ public final class Writer implements AutoCloseable {
      * Writer method — the framework fills in a u32 length prefix on end.
      */
     public long beginUserTag(int tagId) {
-        putByte(Format.tag(Format.M_EXT, Format.EXT_USER_TAG));
+        putExtTag(Format.EXT_USER_TAG);
         putI32(tagId);
         long lenMark = pos;
         ensure(5);
@@ -498,7 +506,7 @@ public final class Writer implements AutoCloseable {
 
     public void writeDoubleArray(double[] arr) {
         int n = arr.length;
-        putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_DOUBLES));
+        putExtTag(Format.EXT_PRIM_DOUBLES);
         putTierValue(n);
         long bytes = (long) n * 8L;
         ensure(bytes);
@@ -508,7 +516,7 @@ public final class Writer implements AutoCloseable {
 
     public void writeIntArray(int[] arr) {
         int n = arr.length;
-        putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_INTS));
+        putExtTag(Format.EXT_PRIM_INTS);
         putTierValue(n);
         long bytes = (long) n * 4L;
         ensure(bytes);
@@ -518,7 +526,7 @@ public final class Writer implements AutoCloseable {
 
     public void writeFloatArray(float[] arr) {
         int n = arr.length;
-        putByte(Format.tag(Format.M_EXT, Format.EXT_PRIM_FLOATS));
+        putExtTag(Format.EXT_PRIM_FLOATS);
         putTierValue(n);
         long bytes = (long) n * 4L;
         ensure(bytes);
@@ -526,19 +534,63 @@ public final class Writer implements AutoCloseable {
         pos += bytes;
     }
 
+    public void writeShortArray(short[] arr) {
+        int n = arr.length;
+        putExtTag(Format.EXT_PRIM_SHORTS);
+        putTierValue(n);
+        long bytes = (long) n * 2L;
+        ensure(bytes);
+        MemorySegment.copy(arr, 0, seg, Format.LE_SHORT, pos, n);
+        pos += bytes;
+    }
+
+    public void writeCharArray(char[] arr) {
+        int n = arr.length;
+        putExtTag(Format.EXT_PRIM_CHARS);
+        putTierValue(n);
+        long bytes = (long) n * 2L;
+        ensure(bytes);
+        MemorySegment.copy(arr, 0, seg, Format.LE_CHAR, pos, n);
+        pos += bytes;
+    }
+
+    public void writeBooleanArray(boolean[] arr) {
+        int n = arr.length;
+        putExtTag(Format.EXT_PRIM_BOOLS);
+        putTierValue(n);
+        ensure(n);
+        for (int i = 0; i < n; i++) {
+            seg.set(ValueLayout.JAVA_BYTE, pos + i, arr[i] ? (byte) 1 : (byte) 0);
+        }
+        pos += n;
+    }
+
+    // Container counts are capped at u32 — the u64 tier slot (nibble
+    // 15) on container majors marks the indefinite-length form instead.
+    private static void checkContainerCount(long n) {
+        if (n > 0xFFFFFFFFL) {
+            throw new IllegalArgumentException(
+                "hako: container count exceeds u32 (" + n + ")");
+        }
+    }
+
     public void writeVectorHeader(long n) {
+        checkContainerCount(n);
         putSizedTag(Format.M_VEC, n);
     }
 
     public void writeListHeader(long n) {
+        checkContainerCount(n);
         putSizedTag(Format.M_LIST, n);
     }
 
     public void writeSetHeader(long n) {
+        checkContainerCount(n);
         putSizedTag(Format.M_SET, n);
     }
 
     public void writeMapHeader(long n) {
+        checkContainerCount(n);
         putSizedTag(Format.M_MAP, n);
     }
 
@@ -600,7 +652,7 @@ public final class Writer implements AutoCloseable {
             throw new IllegalStateException(
                 "hako: record class not registered: " + klass.getName());
         }
-        putByte(Format.tag(Format.M_EXT, Format.EXT_RECORD));
+        putExtTag(Format.EXT_RECORD);
         writeInterned(Format.M_SYM, info.className(), null, info.className());
         putTierValue(info.fieldCount());
         if (info.javaRecord()) {
@@ -767,7 +819,7 @@ public final class Writer implements AutoCloseable {
 
     private void writeSortedSet(PersistentTreeSet s) {
         checkComparator(s, s.comparator(), DEFAULT_TREESET_CMP);
-        putByte(Format.tag(Format.M_EXT, Format.EXT_SORTED_SET));
+        putExtTag(Format.EXT_SORTED_SET);
         putTierValue(s.count());
         java.util.Iterator<?> it = s.iterator();
         while (it.hasNext()) writeAny(it.next());
@@ -775,39 +827,16 @@ public final class Writer implements AutoCloseable {
 
     private void writeSortedMap(PersistentTreeMap m) {
         checkComparator(m, m.comparator(), DEFAULT_TREEMAP_CMP);
-        putByte(Format.tag(Format.M_EXT, Format.EXT_SORTED_MAP));
+        putExtTag(Format.EXT_SORTED_MAP);
         putTierValue(m.count());
         m.kvreduce(KV_WRITER, this);
     }
 
     private void writeQueue(PersistentQueue q) {
-        putByte(Format.tag(Format.M_EXT, Format.EXT_QUEUE));
+        putExtTag(Format.EXT_QUEUE);
         putTierValue(q.count());
         java.util.Iterator<?> it = q.iterator();
         while (it.hasNext()) writeAny(it.next());
-    }
-
-    /**
-     * Emit a list header with a fixed u32 tier and a placeholder count,
-     * returning the offset to backpatch once the element count is known.
-     * Same pattern as {@link #beginUserTag}. Costs 5 header bytes even
-     * for small counts, but lets unknown-length sequences stream in a
-     * single pass with no intermediate materialization.
-     */
-    private long beginStreamingList() {
-        putByte(Format.tag(Format.M_LIST, Format.TIER_U32));
-        long mark = pos;
-        ensure(4);
-        pos += 4;
-        return mark;
-    }
-
-    private void endStreamingList(long mark, long n) {
-        if (n > Integer.MAX_VALUE) {
-            throw new IllegalStateException(
-                "hako: seq count exceeds Integer/MAX_VALUE (" + n + ")");
-        }
-        seg.set(Format.LE_INT, mark, (int) n);
     }
 
     private void writeSeqAny(ISeq s) {
@@ -818,16 +847,14 @@ public final class Writer implements AutoCloseable {
             for (ISeq cur = s.seq(); cur != null; cur = cur.next()) writeAny(cur.first());
             return;
         }
-        // Lazy/chunked seqs: stream elements and backpatch the count —
-        // no ArrayList materialization, and already-encoded prefixes
-        // become GC-able as the walk advances.
-        long mark = beginStreamingList();
-        long n = 0;
-        for (ISeq cur = s.seq(); cur != null; cur = cur.next()) {
-            writeAny(cur.first());
-            n++;
-        }
-        endStreamingList(mark, n);
+        // Lazy/chunked seqs: indefinite-length form — 1-byte marker,
+        // streamed elements, 1-byte break. Single pass, no
+        // materialization, and the frame is valid incrementally (the
+        // count is never a placeholder), so buffers can be flushed
+        // mid-container.
+        putByte(Format.tag(Format.M_LIST, Format.CONTAINER_INDEFINITE));
+        for (ISeq cur = s.seq(); cur != null; cur = cur.next()) writeAny(cur.first());
+        putByte(Format.tag(Format.M_SPEC, Format.SPEC_BREAK));
     }
 
     private void writeIterableAny(Iterable<?> it) {
@@ -837,13 +864,9 @@ public final class Writer implements AutoCloseable {
             for (Object x : c) writeAny(x);
             return;
         }
-        long mark = beginStreamingList();
-        long n = 0;
-        for (Object x : it) {
-            writeAny(x);
-            n++;
-        }
-        endStreamingList(mark, n);
+        putByte(Format.tag(Format.M_LIST, Format.CONTAINER_INDEFINITE));
+        for (Object x : it) writeAny(x);
+        putByte(Format.tag(Format.M_SPEC, Format.SPEC_BREAK));
     }
 
     // -- Top-level dispatch (hot path) -------------------------------------
@@ -854,10 +877,10 @@ public final class Writer implements AutoCloseable {
      * user-tagged types, or anything else outside the built-in set.
      *
      * <p><b>Seq / Iterable note</b>: unknown-length {@code ISeq}s and
-     * non-{@code Collection} {@code Iterable}s stream in a single pass
-     * with a backpatched count — laziness is preserved (encoded
-     * prefixes become GC-able as the walk advances) at the cost of a
-     * fixed 5-byte header regardless of element count.
+     * non-{@code Collection} {@code Iterable}s stream as
+     * indefinite-length lists (1-byte marker + elements + 1-byte
+     * break) — laziness is preserved, encoded prefixes become GC-able
+     * as the walk advances, and the frame is valid incrementally.
      */
     public void writeAny(Object v) {
         writeAnyInner(v, false);
@@ -870,7 +893,7 @@ public final class Writer implements AutoCloseable {
             IObj obj = (IObj) v;
             IPersistentMap m = obj.meta();
             if (m != null && m.count() > 0) {
-                putByte(Format.tag(Format.M_EXT, Format.EXT_WITH_META));
+                putExtTag(Format.EXT_WITH_META);
                 writeAnyInner(v, true);
                 writeAnyInner(m, false);
                 return;
@@ -966,6 +989,9 @@ public final class Writer implements AutoCloseable {
         if (v instanceof double[]) { writeDoubleArray((double[]) v); return; }
         if (v instanceof int[])    { writeIntArray((int[]) v); return; }
         if (v instanceof float[])  { writeFloatArray((float[]) v); return; }
+        if (v instanceof short[])  { writeShortArray((short[]) v); return; }
+        if (v instanceof char[])   { writeCharArray((char[]) v); return; }
+        if (v instanceof boolean[]) { writeBooleanArray((boolean[]) v); return; }
 
         if (v instanceof ISeq)     { writeSeqAny((ISeq) v); return; }
         if (v instanceof Iterable) { writeIterableAny((Iterable<?>) v); return; }

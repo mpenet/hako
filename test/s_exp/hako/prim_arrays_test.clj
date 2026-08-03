@@ -46,6 +46,33 @@
           packed (hako/encode (int-array v))]
       (is (< (alength packed) (alength plain))))))
 
+(deftest prim-short-array
+  (let [xs (short-array [1 -1 Short/MAX_VALUE Short/MIN_VALUE 0])
+        r (hako/decode (hako/encode xs))]
+    (is (= (class (short-array 0)) (class r)))
+    (is (java.util.Arrays/equals xs ^shorts r)))
+  (testing "empty"
+    (let [r (hako/decode (hako/encode (short-array 0)))]
+      (is (zero? (alength ^shorts r))))))
+
+(deftest prim-char-array
+  (let [xs (char-array [\a \空 \é \newline (char 0xFFFF)])
+        r (hako/decode (hako/encode xs))]
+    (is (= (class (char-array 0)) (class r)))
+    (is (java.util.Arrays/equals xs ^chars r)))
+  (testing "empty"
+    (let [r (hako/decode (hako/encode (char-array 0)))]
+      (is (zero? (alength ^chars r))))))
+
+(deftest prim-boolean-array
+  (let [xs (boolean-array [true false true true false])
+        r (hako/decode (hako/encode xs))]
+    (is (= (class (boolean-array 0)) (class r)))
+    (is (java.util.Arrays/equals xs ^booleans r)))
+  (testing "empty"
+    (let [r (hako/decode (hako/encode (boolean-array 0)))]
+      (is (zero? (alength ^booleans r))))))
+
 (deftest pack-homogeneous
   (testing "vector of Long packs to prim-longs (round-trips as long[])"
     (let [v (vec (range 100))

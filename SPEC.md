@@ -61,6 +61,11 @@ size-of-length-field indicator:
 
 Applicable majors are marked "size-tier" below.
 
+Exception: on the container majors (vector, list, set, map) the
+low-nibble value 15 is **not** a u64 tier — it marks an
+indefinite-length container (see §3.5). Counted containers therefore
+max out at the u32 tier.
+
 ### 3.2 Major type table
 
 | Major | Hex  | Name       | Payload                                      |
@@ -72,10 +77,10 @@ Applicable majors are marked "size-tier" below.
 | 4     | 0x4_ | string     | size-tier: length in UTF-8 bytes, then bytes |
 | 5     | 0x5_ | keyword    | size-tier: length in bytes, then payload; or symref (see §3.4) |
 | 6     | 0x6_ | symbol     | same shape as keyword                        |
-| 7     | 0x7_ | vector     | size-tier: element count, then N values      |
-| 8     | 0x8_ | list       | size-tier: element count, then N values      |
-| 9     | 0x9_ | set        | size-tier: element count, then N values      |
-| 10    | 0xA_ | map        | size-tier: pair count, then N × (key, val)   |
+| 7     | 0x7_ | vector     | size-tier: element count, then N values; or indefinite (§3.5) |
+| 8     | 0x8_ | list       | size-tier: element count, then N values; or indefinite (§3.5) |
+| 9     | 0x9_ | set        | size-tier: element count, then N values; or indefinite (§3.5) |
+| 10    | 0xA_ | map        | size-tier: pair count, then N × (key, val); or indefinite (§3.5) |
 | 11    | 0xB_ | record     | reserved — record support lives under 0xE (see EXTENSIONS.md) |
 | 12    | 0xC_ | symref     | size-tier: symbol-table index (see §3.4)     |
 | 13    | 0xD_ | bignumeric | low nibble = subtype (see §3.3.4)            |
@@ -143,7 +148,8 @@ byte.
 | 7          | java.time.Instant (i64 epoch-seconds LE + i32 nanos LE) |
 | 8          | char (next 2 bytes as u16 LE, decoded as UTF-16 code unit) |
 | 9          | java.util.Date (next 8 bytes as i64 epoch-milliseconds LE) |
-| 10..15     | reserved                           |
+| 10         | break — terminates an indefinite-length container (§3.5); invalid anywhere else |
+| 11..15     | reserved                           |
 
 ### 3.4 Symbol table (interning)
 
@@ -175,7 +181,30 @@ Symbol payload uses the identical shape.
 
 ### 3.5 Collections
 
-- Container tags encode **element count** exactly (not stream-terminated).
+Containers come in two forms:
+
+**Counted** (preferred): the tag's size-tier encodes the exact element
+count (pair count for maps), up to the u32 tier. Encoders MUST use the
+counted form whenever the count is known up front.
+
+**Indefinite**: low nibble 15 on a container major starts an
+indefinite-length container. Elements (key/value pairs for maps)
+follow until a break tag (`0xFA`). Rules:
+
+- The break tag is valid only where an element — or, in a map, a key —
+  is expected inside an indefinite container. A break at a map value
+  position, or anywhere outside an indefinite container, is malformed
+  and MUST error.
+- Indefinite containers nest freely (inner containers consume their
+  own break).
+- The form exists for unknown-length sources (lazy sequences,
+  streams): the frame is valid incrementally and never carries a
+  placeholder count, so encoders can flush mid-container.
+- Decoders cannot preallocate for indefinite containers; memory-bound
+  consumers should impose external input limits (§8 applies).
+
+General:
+
 - Sets and maps: iteration order on write is implementation-defined.
 - Maps do not distinguish concrete map type on the wire. See §5.
 - Vectors, lists, sets, and maps use the same size-tier convention.
@@ -210,7 +239,10 @@ Explicit write failures (loud, never silent):
 
 ## 6. Limits
 
-- Container element count: up to 2^64 − 1 (u64 size-tier).
+- Container element count: counted form up to 2^32 − 1 (u32 tier; the
+  u64 tier slot marks the indefinite form, §3.5). Indefinite form is
+  unbounded on the wire; JVM decoders are bounded by array/collection
+  limits (2^31 − 1).
 - Byte string / UTF-8 length: same.
 - Symbol table index: same.
 
@@ -222,6 +254,8 @@ Encoded output is **not** required to be deterministic across:
 
 - Map / set iteration order.
 - Choice of size-tier when multiple fit (encoder MAY pick larger).
+- Choice of counted vs indefinite container form for unknown-length
+  sources (§3.5).
 - Symbol-table interning choices (see §3.4 reuse rule).
 
 Applications requiring canonical form MUST post-process (e.g. via a canonical

@@ -256,6 +256,34 @@ public final class Reader {
         return arr;
     }
 
+    public short[] readShortArray(int n) {
+        long bytes = (long) n * 2L;
+        need(bytes);
+        short[] arr = new short[n];
+        MemorySegment.copy(seg, Format.LE_SHORT, pos, arr, 0, n);
+        pos += bytes;
+        return arr;
+    }
+
+    public char[] readCharArray(int n) {
+        long bytes = (long) n * 2L;
+        need(bytes);
+        char[] arr = new char[n];
+        MemorySegment.copy(seg, Format.LE_CHAR, pos, arr, 0, n);
+        pos += bytes;
+        return arr;
+    }
+
+    public boolean[] readBooleanArray(int n) {
+        need(n);
+        boolean[] arr = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            arr[i] = seg.get(ValueLayout.JAVA_BYTE, pos + i) != 0;
+        }
+        pos += n;
+        return arr;
+    }
+
     public long readTierPayload(int code) {
         if (code <= Format.TIER_INLINE_MAX) return code;
         return switch (code) {
@@ -532,6 +560,12 @@ public final class Reader {
     // -- Collection reads --------------------------------------------------
 
     private Object readVector(int tierCode) {
+        if (tierCode == Format.CONTAINER_INDEFINITE) {
+            clojure.lang.ITransientCollection t = PersistentVector.EMPTY.asTransient();
+            int b;
+            while ((b = getByte()) != BREAK_TAG) t = t.conj(readAnyTag(b));
+            return t.persistent();
+        }
         int n = (int) checkCount(readTierPayload(tierCode), "vector count");
         if (n == 0) return PersistentVector.EMPTY;
         // n <= 32 fits in a single PersistentVector tail: `createOwning`
@@ -548,6 +582,14 @@ public final class Reader {
     }
 
     private Object readList(int tierCode) {
+        if (tierCode == Format.CONTAINER_INDEFINITE) {
+            ArrayList<Object> tmp = new ArrayList<>();
+            int b;
+            while ((b = getByte()) != BREAK_TAG) tmp.add(readAnyTag(b));
+            clojure.lang.IPersistentCollection ret = PersistentList.EMPTY;
+            for (int i = tmp.size() - 1; i >= 0; i--) ret = ret.cons(tmp.get(i));
+            return ret;
+        }
         int n = (int) checkCount(readTierPayload(tierCode), "list count");
         if (n == 0) return PersistentList.EMPTY;
         // Every element is at least 1 byte on the wire, so a count
@@ -564,6 +606,12 @@ public final class Reader {
     }
 
     private Object readSet(int tierCode) {
+        if (tierCode == Format.CONTAINER_INDEFINITE) {
+            clojure.lang.ITransientCollection t = PersistentHashSet.EMPTY.asTransient();
+            int b;
+            while ((b = getByte()) != BREAK_TAG) t = t.conj(readAnyTag(b));
+            return t.persistent();
+        }
         int n = (int) checkCount(readTierPayload(tierCode), "set count");
         if (n == 0) return PersistentHashSet.EMPTY;
         clojure.lang.ITransientCollection t = PersistentHashSet.EMPTY.asTransient();
@@ -572,6 +620,19 @@ public final class Reader {
     }
 
     private Object readMap(int tierCode) {
+        if (tierCode == Format.CONTAINER_INDEFINITE) {
+            // Break is only legal at a key position; a break where a
+            // value is expected surfaces as "break outside indefinite
+            // container" from readSpecial via the value's readAny.
+            clojure.lang.ITransientMap t =
+                (clojure.lang.ITransientMap) PersistentHashMap.EMPTY.asTransient();
+            int b;
+            while ((b = getByte()) != BREAK_TAG) {
+                Object k = readAnyTag(b);
+                t = t.assoc(k, readAny());
+            }
+            return t.persistent();
+        }
         int n = (int) checkCount(readTierPayload(tierCode), "map count");
         if (n == 0) return PersistentArrayMap.EMPTY;
         // Definitely-hashmap: skip the Object[n*2] intermediate and
@@ -623,6 +684,9 @@ public final class Reader {
                 return Character.valueOf((char) getU16());
             case Format.SPEC_DATE:
                 return new java.util.Date(getI64());
+            case Format.SPEC_BREAK:
+                throw new IllegalStateException(
+                    "hako: break tag outside an indefinite-length container");
             default:
                 throw new IllegalStateException("hako: unknown special subtype " + low);
         }
@@ -735,6 +799,18 @@ public final class Reader {
                 int n = (int) checkCount(readTierValue(), "prim-floats count");
                 return readFloatArray(n);
             }
+            case Format.EXT_PRIM_SHORTS: {
+                int n = (int) checkCount(readTierValue(), "prim-shorts count");
+                return readShortArray(n);
+            }
+            case Format.EXT_PRIM_CHARS: {
+                int n = (int) checkCount(readTierValue(), "prim-chars count");
+                return readCharArray(n);
+            }
+            case Format.EXT_PRIM_BOOLS: {
+                int n = (int) checkCount(readTierValue(), "prim-booleans count");
+                return readBooleanArray(n);
+            }
             case Format.EXT_USER_TAG:
                 if (extensionHandler == null) {
                     throw new IllegalStateException(
@@ -749,7 +825,12 @@ public final class Reader {
     // -- Top-level dispatch (hot path) -------------------------------------
 
     public Object readAny() {
-        int tag = getByte();
+        return readAnyTag(getByte());
+    }
+
+    private static final int BREAK_TAG = Format.M_SPEC | Format.SPEC_BREAK;
+
+    private Object readAnyTag(int tag) {
         int major = tag & 0xF0;
         int low = tag & 0x0F;
         switch (major) {
@@ -775,7 +856,15 @@ public final class Reader {
             case Format.M_SYMREF:
                 return symTable.get((int) checkCount(readTierPayload(low), "symref index"));
             case Format.M_BIGNUM: return readBignumeric(low);
-            case Format.M_EXT:    return readExtension(low);
+            case Format.M_EXT: {
+                // Extension frame: tag byte is exactly 0xE0, subtype
+                // lives in the following u8 (uniform 256-id namespace).
+                if (low != 0) {
+                    throw new IllegalStateException(
+                        "hako: malformed extension tag 0x" + Integer.toHexString(tag));
+                }
+                return readExtension(getByte());
+            }
             case Format.M_SPEC:   return readSpecial(low);
             default:
                 throw new IllegalStateException("hako: unknown major type 0x" + Integer.toHexString(major));

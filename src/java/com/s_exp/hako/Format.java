@@ -50,6 +50,18 @@ public final class Format {
     public static final int SPEC_INST = 7;
     public static final int SPEC_CHAR = 8;
     public static final int SPEC_DATE = 9;
+    /** Terminates an indefinite-length container. Invalid anywhere else. */
+    public static final int SPEC_BREAK = 10;
+
+    /**
+     * On container majors (VEC/LIST/SET/MAP) the low-nibble value 15 is
+     * not a u64 size tier — it marks an indefinite-length container:
+     * elements follow until a break tag (0xFA). Container counts are
+     * therefore capped at u32; JVM arrays cap them at 2^31 anyway.
+     * Non-container size-tier majors (uint, bytes, string, kw/sym,
+     * symref) keep 15 = u64.
+     */
+    public static final int CONTAINER_INDEFINITE = 15;
 
     public static final int BIG_BIGINT = 0;
     public static final int BIG_BIGDEC = 1;
@@ -64,10 +76,19 @@ public final class Format {
     public static final int EXT_PRIM_DOUBLES = 6;
     public static final int EXT_PRIM_INTS = 7;
     public static final int EXT_PRIM_FLOATS = 8;
+    // Extension frames are `0xE0` (tag byte, low nibble always 0)
+    // followed by one u8 subtype byte — a single uniform namespace of
+    // 256 built-in ids. Ids 12..14 and 16..255 are reserved.
+    public static final int EXT_PRIM_SHORTS = 9;
+    public static final int EXT_PRIM_CHARS = 10;
+    public static final int EXT_PRIM_BOOLS = 11;
     public static final int EXT_USER_TAG = 15;
 
     public static final ValueLayout.OfShort LE_SHORT =
         ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+
+    public static final ValueLayout.OfChar LE_CHAR =
+        ValueLayout.JAVA_CHAR_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
 
     public static final ValueLayout.OfInt LE_INT =
         ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
