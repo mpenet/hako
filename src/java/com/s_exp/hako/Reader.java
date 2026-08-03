@@ -302,18 +302,13 @@ public final class Reader {
     }
 
     public void readEnvelope() {
-        int b0 = getByte();
-        int b1 = getByte();
-        int b2 = getByte();
-        int b3 = getByte();
-        if (b0 != (Format.MAGIC_0 & 0xFF)
-            || b1 != (Format.MAGIC_1 & 0xFF)
-            || b2 != (Format.MAGIC_2 & 0xFF)
-            || b3 != (Format.MAGIC_3 & 0xFF)) {
+        need(5);
+        if (seg.get(Format.LE_INT, pos) != Format.MAGIC_LE) {
             throw new IllegalStateException("hako: bad magic");
         }
-        int v = getByte();
+        int v = seg.get(ValueLayout.JAVA_BYTE, pos + 4) & 0xFF;
         if (v != 0) throw new IllegalStateException("hako: unsupported version " + v);
+        pos += 5;
     }
 
     public void internAdd(Object o) {
@@ -389,7 +384,7 @@ public final class Reader {
         }
 
         private static <V> void insertRaw(byte[][] nk, V[] nv, int mask, byte[] key, V val) {
-            int i = Arrays.hashCode(key) & mask;
+            int i = bytesHashArr(key) & mask;
             while (nk[i] != null) i = (i + 1) & mask;
             nk[i] = key;
             nv[i] = val;
@@ -401,17 +396,57 @@ public final class Reader {
     private static final Object KW_LOCK  = new Object();
     private static final Object SYM_LOCK = new Object();
 
+    private static final java.lang.invoke.VarHandle LONG_VIEW =
+        java.lang.invoke.MethodHandles.byteArrayViewVarHandle(
+            long[].class, java.nio.ByteOrder.LITTLE_ENDIAN);
+
+    // Chunked mix over 8-byte LE words + byte tail. NOT
+    // Arrays.hashCode-compatible — bytesHashSeg (segment side) and
+    // bytesHashArr (byte[] side) MUST stay in lockstep; they feed the
+    // same IdentCache tables.
+    // murmur3 fmix64 finalizer — avalanches the chunked mix so keys
+    // sharing long common prefixes don't cluster in the table.
+    private static int fmix(long h) {
+        h ^= h >>> 33;
+        h *= 0xff51afd7ed558ccdL;
+        h ^= h >>> 33;
+        h *= 0xc4ceb9fe1a85ec53L;
+        h ^= h >>> 33;
+        return (int) h;
+    }
+
     private static int bytesHashSeg(MemorySegment seg, long off, int len) {
-        int h = 1;
-        for (int i = 0; i < len; i++) {
-            h = 31 * h + seg.get(ValueLayout.JAVA_BYTE, off + i);
+        long h = 1;
+        int i = 0;
+        for (; i + 8 <= len; i += 8) {
+            h = h * 0x9E3779B97F4A7C15L + seg.get(Format.LE_LONG, off + i);
         }
-        return h;
+        for (; i < len; i++) {
+            h = h * 31 + seg.get(ValueLayout.JAVA_BYTE, off + i);
+        }
+        return fmix(h);
+    }
+
+    private static int bytesHashArr(byte[] bs) {
+        long h = 1;
+        int i = 0;
+        int n = bs.length;
+        for (; i + 8 <= n; i += 8) {
+            h = h * 0x9E3779B97F4A7C15L + (long) LONG_VIEW.get(bs, i);
+        }
+        for (; i < n; i++) {
+            h = h * 31 + bs[i];
+        }
+        return fmix(h);
     }
 
     private static boolean bytesEqualSeg(MemorySegment seg, long off, byte[] target) {
         int n = target.length;
-        for (int i = 0; i < n; i++) {
+        int i = 0;
+        for (; i + 8 <= n; i += 8) {
+            if (seg.get(Format.LE_LONG, off + i) != (long) LONG_VIEW.get(target, i)) return false;
+        }
+        for (; i < n; i++) {
             if (seg.get(ValueLayout.JAVA_BYTE, off + i) != target[i]) return false;
         }
         return true;
@@ -428,7 +463,7 @@ public final class Reader {
     public static void primeKwCache(String name, Keyword kw) {
         byte[] bs = identBytes(null, name);
         synchronized (KW_LOCK) {
-            if (KW_CACHE.lookupArr(bs, Arrays.hashCode(bs)) == null) {
+            if (KW_CACHE.lookupArr(bs, bytesHashArr(bs)) == null) {
                 KW_CACHE = KW_CACHE.withEntry(bs, kw);
             }
         }
@@ -438,7 +473,7 @@ public final class Reader {
     public static void primeSymCache(String name, Symbol sym) {
         byte[] bs = identBytes(null, name);
         synchronized (SYM_LOCK) {
-            if (SYM_CACHE.lookupArr(bs, Arrays.hashCode(bs)) == null) {
+            if (SYM_CACHE.lookupArr(bs, bytesHashArr(bs)) == null) {
                 SYM_CACHE = SYM_CACHE.withEntry(bs, sym);
             }
         }
