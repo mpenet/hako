@@ -86,8 +86,21 @@ Precision is exact.
 |-------------------------|---------------------------------------------------|
 | `java.util.UUID`        | special `0xF6` + 16 bytes                          |
 | `java.time.Instant`     | special `0xF7` + i64 epoch-sec + i32 nanos         |
+| `java.util.Date`        | special `0xF9` + i64 epoch-millis                  |
+| `java.time.Duration`    | ext `0xE0 13` + i64 secs + i32 nanos               |
+| `java.time.Period`      | ext `0xE0 14` + 3 × i32 (y, m, d)                  |
+| `java.time.LocalDate`   | ext `0xE0 15` + i64 epoch-day                      |
+| `java.time.LocalTime`   | ext `0xE0 16` + i64 nano-of-day                    |
+| `java.time.LocalDateTime` | ext `0xE0 17` + i64 epoch-day + i64 nano-of-day  |
+| `java.time.ZonedDateTime` | ext `0xE0 18` + instant + zone-id string         |
+| `java.time.OffsetDateTime` | ext `0xE0 19` + local-date-time + i32 offset-sec |
+| `java.util.regex.Pattern` | ext `0xE0 11` + source string + i32 flags        |
+| `java.net.URI`          | ext `0xE0 12` + string                             |
 
 Instants roundtrip pre-1970 (negative epoch-sec) correctly.
+Pattern flags (case-insensitive, multiline, …) are preserved.
+ZonedDateTime preserves the exact instant, including DST-overlap
+local times.
 
 ## Collections
 
@@ -98,6 +111,11 @@ Instants roundtrip pre-1970 (negative epoch-sec) correctly.
 | `#{1 2 3}`            | set major `0x9` + count + elements                |
 | `{:a 1 :b 2}`         | map major `0xA` + count + (k, v) pairs            |
 
+Unknown-length sequences (lazy seqs, non-`Collection` iterables)
+are emitted as indefinite-length lists: tier nibble 15 + elements +
+break tag `0xFA` (see SPEC §3.5). Laziness is preserved on encode;
+they decode as `PersistentList`.
+
 Set / map iteration order on the wire is undefined. Decoded values
 compare semantically (`=`) with the source but may not iterate in
 the same order.
@@ -106,8 +124,8 @@ the same order.
 
 | Clojure               | Wire                                              |
 |-----------------------|---------------------------------------------------|
-| `(sorted-set 3 1 2)`  | extension `0xE0` + count + values                  |
-| `(sorted-map ...)`    | extension `0xE1` + count + (k, v) pairs           |
+| `(sorted-set 3 1 2)`  | ext `0xE0 00` + count + values                     |
+| `(sorted-map ...)`    | ext `0xE0 01` + count + (k, v) pairs               |
 
 Only the default comparator (`compare`) roundtrips. Custom
 comparators throw at encode unless `{:coerce-custom-comparator true}`
@@ -118,18 +136,27 @@ to `compare` on decode).
 
 | Clojure                              | Wire                     |
 |--------------------------------------|--------------------------|
-| `clojure.lang.PersistentQueue/EMPTY` | extension `0xE2` + count + values |
+| `clojure.lang.PersistentQueue/EMPTY` | ext `0xE0 02` + count + values |
 
 Decodes as `PersistentQueue`.
 
-### Prim arrays
+### Arrays
 
-| Java     | Wire                                                     |
-|----------|----------------------------------------------------------|
-| `long[]` | extension `0xE5` — packed i64 LE                         |
-| `double[]` | extension `0xE6` — packed f64 LE                       |
-| `int[]`  | extension `0xE7` — packed i32 LE                         |
-| `float[]` | extension `0xE8` — packed f32 LE                        |
+| Java        | Wire                                                  |
+|-------------|-------------------------------------------------------|
+| `long[]`    | ext `0xE0 05` — packed i64 LE                         |
+| `double[]`  | ext `0xE0 06` — packed f64 LE                         |
+| `int[]`     | ext `0xE0 07` — packed i32 LE                         |
+| `float[]`   | ext `0xE0 08` — packed f32 LE                         |
+| `short[]`   | ext `0xE0 09` — packed i16 LE                         |
+| `char[]`    | ext `0xE0 0A` — packed u16 LE                         |
+| `boolean[]` | ext `0xE0 0B` — one byte per element                  |
+| `Object[]`  | ext `0xE0 10` — count + N encoded values              |
+
+Primitive arrays preserve component type. Any reference-typed
+array (`Object[]`, `String[]`, …) encodes via the object-array
+subtype and decodes as `Object[]` — component type is not
+preserved.
 
 With `{:pack-homogeneous true}` on encode, vectors of all-`Long`
 or all-`Double` elements are auto-detected and emitted as packed
@@ -140,7 +167,7 @@ prim arrays. See [Performance](performance.md).
 Both Clojure `defrecord`s and Java `record`s require explicit
 registration. See [Extensions §Records](extensions.md#records).
 
-Wire: extension `0xE3` + symref classname + field count + values.
+Wire: ext `0xE0 03` + symref classname + field count + values.
 
 ## Fallback for unknown types
 

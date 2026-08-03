@@ -811,6 +811,80 @@ public final class Reader {
                 int n = (int) checkCount(readTierValue(), "prim-booleans count");
                 return readBooleanArray(n);
             }
+            case Format.EXT_OBJECT_ARRAY: {
+                int n = (int) checkCount(readTierValue(), "Object[] count");
+                need(n);  // every element is ≥ 1 byte on wire
+                Object[] arr = new Object[n];
+                for (int i = 0; i < n; i++) arr[i] = readAny();
+                return arr;
+            }
+            case Format.EXT_REGEX: {
+                Object src = readAny();
+                if (!(src instanceof String)) {
+                    throw new IllegalStateException(
+                        "hako: regex pattern payload must be a string, got "
+                        + (src == null ? "nil" : src.getClass().getName()));
+                }
+                int flags = getI32();
+                return java.util.regex.Pattern.compile((String) src, flags);
+            }
+            case Format.EXT_URI: {
+                Object src = readAny();
+                if (!(src instanceof String)) {
+                    throw new IllegalStateException(
+                        "hako: URI payload must be a string, got "
+                        + (src == null ? "nil" : src.getClass().getName()));
+                }
+                try {
+                    return new java.net.URI((String) src);
+                } catch (java.net.URISyntaxException e) {
+                    throw new IllegalStateException("hako: malformed URI in wire payload", e);
+                }
+            }
+            case Format.EXT_DURATION: {
+                long secs = getI64();
+                int nanos = getI32();
+                return java.time.Duration.ofSeconds(secs, nanos);
+            }
+            case Format.EXT_PERIOD: {
+                int y = getI32();
+                int m = getI32();
+                int d = getI32();
+                return java.time.Period.of(y, m, d);
+            }
+            case Format.EXT_LOCAL_DATE:
+                return java.time.LocalDate.ofEpochDay(getI64());
+            case Format.EXT_LOCAL_TIME:
+                return java.time.LocalTime.ofNanoOfDay(getI64());
+            case Format.EXT_LOCAL_DATE_TIME: {
+                long epochDay = getI64();
+                long nanoOfDay = getI64();
+                return java.time.LocalDateTime.of(
+                    java.time.LocalDate.ofEpochDay(epochDay),
+                    java.time.LocalTime.ofNanoOfDay(nanoOfDay));
+            }
+            case Format.EXT_ZONED_DATE_TIME: {
+                long secs = getI64();
+                long nanos = getU32();
+                Object zoneId = readAny();
+                if (!(zoneId instanceof String)) {
+                    throw new IllegalStateException(
+                        "hako: zone-id payload must be a string, got "
+                        + (zoneId == null ? "nil" : zoneId.getClass().getName()));
+                }
+                return java.time.ZonedDateTime.ofInstant(
+                    Instant.ofEpochSecond(secs, nanos),
+                    java.time.ZoneId.of((String) zoneId));
+            }
+            case Format.EXT_OFFSET_DATE_TIME: {
+                long epochDay = getI64();
+                long nanoOfDay = getI64();
+                int offsetSecs = getI32();
+                return java.time.OffsetDateTime.of(
+                    java.time.LocalDate.ofEpochDay(epochDay),
+                    java.time.LocalTime.ofNanoOfDay(nanoOfDay),
+                    java.time.ZoneOffset.ofTotalSeconds(offsetSecs));
+            }
             case Format.EXT_USER_TAG:
                 if (extensionHandler == null) {
                     throw new IllegalStateException(

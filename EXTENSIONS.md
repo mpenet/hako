@@ -25,7 +25,17 @@ the subtype payload.
 | 11         | prim-booleans | size-tier count, then N × u8 (packed `boolean[]`, one byte per element) |
 | 12..14     | reserved      |                                                              |
 | 15         | user-tag      | u32 LE user tag id, then payload (see §E.2)                 |
-| 16..255    | reserved      |                                                              |
+| 16         | object-array  | size-tier count, then N values (decodes as `Object[]`)      |
+| 17         | regex         | string source, then i32 LE flags (`Pattern`)                |
+| 18         | uri           | string (via `URI.toString`)                                 |
+| 19         | duration      | i64 seconds LE + i32 nanos LE (`Duration`)                  |
+| 20         | period        | 3 × i32 LE (years, months, days) (`Period`)                 |
+| 21         | local-date    | i64 epoch-day LE (`LocalDate`)                              |
+| 22         | local-time    | i64 nano-of-day LE (`LocalTime`)                            |
+| 23         | local-date-time | i64 epoch-day LE + i64 nano-of-day LE (`LocalDateTime`)   |
+| 24         | zoned-date-time | i64 epoch-seconds LE + u32 nanos LE + zone-id string (`ZonedDateTime`) |
+| 25         | offset-date-time | i64 epoch-day LE + i64 nano-of-day LE + i32 offset-seconds LE (`OffsetDateTime`) |
+| 26..255    | reserved      |                                                              |
 
 Notes:
 
@@ -47,6 +57,11 @@ Notes:
   widening). Reader returns the corresponding typed array.
 - **prim-booleans**: encoders MUST emit `0` or `1` per element;
   decoders MUST treat any non-zero byte as `true`.
+- **object-array**: any reference-typed Java array (`Object[]`,
+  `String[]`, `Foo[]` …) is encoded via this subtype; the component
+  type is not preserved on the wire — decode always yields
+  `Object[]`. Contrast with the prim-array subtypes (5-11) which do
+  preserve component type.
 - **reserved subtypes**: decoders MUST throw on any reserved subtype
   (decoder too old, or corrupt frame — never silently skip, payload
   length is unknown for built-ins).

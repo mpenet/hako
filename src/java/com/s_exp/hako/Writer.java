@@ -26,6 +26,7 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.regex.Pattern;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.UUID;
@@ -565,6 +566,69 @@ public final class Writer implements AutoCloseable {
         pos += n;
     }
 
+    public void writeObjectArray(Object[] arr) {
+        int n = arr.length;
+        putExtTag(Format.EXT_OBJECT_ARRAY);
+        putTierValue(n);
+        for (int i = 0; i < n; i++) writeAny(arr[i]);
+    }
+
+    public void writePattern(Pattern p) {
+        putExtTag(Format.EXT_REGEX);
+        writeString(p.pattern());
+        putI32(p.flags());
+    }
+
+    public void writeUri(java.net.URI u) {
+        putExtTag(Format.EXT_URI);
+        writeString(u.toString());
+    }
+
+    public void writeDuration(java.time.Duration d) {
+        putExtTag(Format.EXT_DURATION);
+        putI64(d.getSeconds());
+        putI32(d.getNano());
+    }
+
+    public void writePeriod(java.time.Period p) {
+        putExtTag(Format.EXT_PERIOD);
+        putI32(p.getYears());
+        putI32(p.getMonths());
+        putI32(p.getDays());
+    }
+
+    public void writeLocalDate(java.time.LocalDate d) {
+        putExtTag(Format.EXT_LOCAL_DATE);
+        putI64(d.toEpochDay());
+    }
+
+    public void writeLocalTime(java.time.LocalTime t) {
+        putExtTag(Format.EXT_LOCAL_TIME);
+        putI64(t.toNanoOfDay());
+    }
+
+    public void writeLocalDateTime(java.time.LocalDateTime dt) {
+        putExtTag(Format.EXT_LOCAL_DATE_TIME);
+        putI64(dt.toLocalDate().toEpochDay());
+        putI64(dt.toLocalTime().toNanoOfDay());
+    }
+
+    public void writeZonedDateTime(java.time.ZonedDateTime zdt) {
+        putExtTag(Format.EXT_ZONED_DATE_TIME);
+        java.time.Instant i = zdt.toInstant();
+        putI64(i.getEpochSecond());
+        putU32(i.getNano());
+        writeString(zdt.getZone().getId());
+    }
+
+    public void writeOffsetDateTime(java.time.OffsetDateTime odt) {
+        putExtTag(Format.EXT_OFFSET_DATE_TIME);
+        java.time.LocalDateTime ldt = odt.toLocalDateTime();
+        putI64(ldt.toLocalDate().toEpochDay());
+        putI64(ldt.toLocalTime().toNanoOfDay());
+        putI32(odt.getOffset().getTotalSeconds());
+    }
+
     // Container counts are capped at u32 — the u64 tier slot (nibble
     // 15) on container majors marks the indefinite-length form instead.
     private static void checkContainerCount(long n) {
@@ -992,6 +1056,18 @@ public final class Writer implements AutoCloseable {
         if (v instanceof short[])  { writeShortArray((short[]) v); return; }
         if (v instanceof char[])   { writeCharArray((char[]) v); return; }
         if (v instanceof boolean[]) { writeBooleanArray((boolean[]) v); return; }
+        // Any reference-typed array (Object[], String[], etc.) — component
+        // type is not preserved; decode always yields Object[].
+        if (v instanceof Object[]) { writeObjectArray((Object[]) v); return; }
+        if (v instanceof Pattern)  { writePattern((Pattern) v); return; }
+        if (v instanceof java.net.URI) { writeUri((java.net.URI) v); return; }
+        if (v instanceof java.time.Duration) { writeDuration((java.time.Duration) v); return; }
+        if (v instanceof java.time.Period)   { writePeriod((java.time.Period) v); return; }
+        if (v instanceof java.time.LocalDate)      { writeLocalDate((java.time.LocalDate) v); return; }
+        if (v instanceof java.time.LocalTime)      { writeLocalTime((java.time.LocalTime) v); return; }
+        if (v instanceof java.time.LocalDateTime)  { writeLocalDateTime((java.time.LocalDateTime) v); return; }
+        if (v instanceof java.time.ZonedDateTime)  { writeZonedDateTime((java.time.ZonedDateTime) v); return; }
+        if (v instanceof java.time.OffsetDateTime) { writeOffsetDateTime((java.time.OffsetDateTime) v); return; }
 
         if (v instanceof ISeq)     { writeSeqAny((ISeq) v); return; }
         if (v instanceof Iterable) { writeIterableAny((Iterable<?>) v); return; }

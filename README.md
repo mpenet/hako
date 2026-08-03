@@ -152,9 +152,15 @@ Semantic equality (`=`) is preserved for all listed types.
 
 - `nil`, `boolean`, `Character`, `Long`, `Integer`, `Short`, `Byte`,
   `Double`, `Float`, `String`.
-- `byte[]`, `long[]`, `double[]`, `int[]`, `float[]`.
+- `byte[]`, `long[]`, `double[]`, `int[]`, `float[]`, `short[]`,
+  `char[]`, `boolean[]` — packed, component type preserved.
+- `Object[]` (and any reference-typed array — component type not
+  preserved, decodes as `Object[]`).
 - `Keyword`, `Symbol` — with per-message symbol table + symref dedup.
-- `UUID`, `java.time.Instant`, `java.util.Date`.
+- `UUID`, `java.util.Date`, `java.util.regex.Pattern` (flags
+  preserved), `java.net.URI`.
+- `java.time`: `Instant`, `Duration`, `Period`, `LocalDate`,
+  `LocalTime`, `LocalDateTime`, `ZonedDateTime`, `OffsetDateTime`.
 - `BigInteger`, `clojure.lang.BigInt`, `BigDecimal`, `Ratio`.
 - `PersistentVector`, `PersistentList`, `PersistentHashSet`,
   `PersistentHashMap`, `PersistentArrayMap`, `ISeq`.
@@ -201,20 +207,20 @@ public record Point(int x, int y) {}
 ### User-tagged types
 
 ```clj
-(import '(java.net URI))
+(import '(java.io File))
 
 (ext/register-user-tag!
  1                                      ; small app-local id (shifted to 0x10000001 on wire)
- URI
- (fn write [w u] (.writeString w (str u)))
+ File
+ (fn write [w f] (.writeString w (.getPath ^File f)))
  (fn read  [r]
    (let [tag (.getByte r)
          low (bit-and tag 0x0F)
          n (.readTierPayload r (int low))]
-     (URI. (.getString r (int n))))))
+     (File. (.getString r (int n))))))
 
-(hako/decode (hako/encode (URI. "https://example.com")))
-;; => #object[java.net.URI ...]
+(hako/decode (hako/encode (File. "/tmp/data.edn")))
+;; => #object[java.io.File ...]
 ```
 
 Frames are length-prefixed, so an unknown user-tag id can be

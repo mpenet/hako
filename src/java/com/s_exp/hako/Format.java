@@ -83,6 +83,16 @@ public final class Format {
     public static final int EXT_PRIM_CHARS = 10;
     public static final int EXT_PRIM_BOOLS = 11;
     public static final int EXT_USER_TAG = 15;
+    public static final int EXT_OBJECT_ARRAY = 16;
+    public static final int EXT_REGEX = 17;
+    public static final int EXT_URI = 18;
+    public static final int EXT_DURATION = 19;
+    public static final int EXT_PERIOD = 20;
+    public static final int EXT_LOCAL_DATE = 21;
+    public static final int EXT_LOCAL_TIME = 22;
+    public static final int EXT_LOCAL_DATE_TIME = 23;
+    public static final int EXT_ZONED_DATE_TIME = 24;
+    public static final int EXT_OFFSET_DATE_TIME = 25;
 
     public static final ValueLayout.OfShort LE_SHORT =
         ValueLayout.JAVA_SHORT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);

@@ -73,6 +73,26 @@
     (let [r (hako/decode (hako/encode (boolean-array 0)))]
       (is (zero? (alength ^booleans r))))))
 
+(deftest object-array-roundtrip
+  (testing "roundtrip preserves values, decodes as Object[]"
+    (let [xs (object-array [1 "two" {:data "data"} :kw [1 2 3] nil])
+          r (hako/decode (hako/encode xs))]
+      (is (= (class (object-array 0)) (class r)))
+      (is (= (into [] xs) (into [] r)))))
+  (testing "empty"
+    (let [r (hako/decode (hako/encode (object-array 0)))]
+      (is (= (class (object-array 0)) (class r)))
+      (is (zero? (alength ^objects r)))))
+  (testing "String[] is coerced to Object[] on decode (component type not preserved)"
+    (let [xs (into-array String ["a" "b" "c"])
+          r (hako/decode (hako/encode xs))]
+      (is (= (class (object-array 0)) (class r)))
+      (is (= ["a" "b" "c"] (into [] r)))))
+  (testing "nested Object[] inside a map"
+    (let [v {:xs (object-array [:a :b :c])}
+          r (hako/decode (hako/encode v))]
+      (is (= [:a :b :c] (into [] (:xs r)))))))
+
 (deftest pack-homogeneous
   (testing "vector of Long packs to prim-longs (round-trips as long[])"
     (let [v (vec (range 100))
