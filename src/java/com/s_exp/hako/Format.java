@@ -15,6 +15,10 @@ public final class Format {
     public static final byte MAGIC_3 = 0x4F; // 'O'
     public static final byte VERSION = 0x00;
 
+    /** The four magic bytes as one little-endian i32 ("HAKO" in byte order). */
+    public static final int MAGIC_LE =
+        (MAGIC_0 & 0xFF) | (MAGIC_1 & 0xFF) << 8 | (MAGIC_2 & 0xFF) << 16 | (MAGIC_3 & 0xFF) << 24;
+
     public static final int M_UINT = 0x00;
     public static final int M_SINT = 0x10;
     public static final int M_FLOAT = 0x20;

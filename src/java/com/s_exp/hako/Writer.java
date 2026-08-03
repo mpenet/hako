@@ -12,9 +12,13 @@ import clojure.lang.IPersistentSet;
 import clojure.lang.IPersistentVector;
 import clojure.lang.ISeq;
 import clojure.lang.Keyword;
+import clojure.lang.PersistentArrayMap;
+import clojure.lang.PersistentHashMap;
+import clojure.lang.PersistentHashSet;
 import clojure.lang.PersistentQueue;
 import clojure.lang.PersistentTreeMap;
 import clojure.lang.PersistentTreeSet;
+import clojure.lang.PersistentVector;
 import clojure.lang.Ratio;
 import clojure.lang.Symbol;
 import java.lang.foreign.Arena;
@@ -332,11 +336,10 @@ public final class Writer implements AutoCloseable {
     }
 
     public void writeEnvelope() {
-        putByte(Format.MAGIC_0);
-        putByte(Format.MAGIC_1);
-        putByte(Format.MAGIC_2);
-        putByte(Format.MAGIC_3);
-        putByte(Format.VERSION);
+        ensure(5);
+        seg.set(Format.LE_INT, pos, Format.MAGIC_LE);
+        seg.set(ValueLayout.JAVA_BYTE, pos + 4, Format.VERSION);
+        pos += 5;
     }
 
     public void writeNil() {
@@ -1002,6 +1005,15 @@ public final class Writer implements AutoCloseable {
         if (klass == PersistentTreeSet.class) { writeSortedSet((PersistentTreeSet) v); return; }
         if (klass == PersistentTreeMap.class) { writeSortedMap((PersistentTreeMap) v); return; }
         if (klass == PersistentQueue.class)   { writeQueue((PersistentQueue) v); return; }
+
+        // Exact-class fast paths for the dominant concrete collections —
+        // skip the user-tag ClassValue lookup below. Consequence: a
+        // user-tag registered on these exact classes is not honored
+        // (pathological — register a distinct type instead).
+        if (klass == PersistentVector.class)   { writeVectorAny((IPersistentVector) v); return; }
+        if (klass == PersistentArrayMap.class) { writeMapAny((IPersistentMap) v); return; }
+        if (klass == PersistentHashMap.class)  { writeMapAny((IPersistentMap) v); return; }
+        if (klass == PersistentHashSet.class)  { writeSetAny((IPersistentSet) v); return; }
 
         // User-tag registrations win over generic collection / sequence
         // dispatch — otherwise a registered SpillableVector /
